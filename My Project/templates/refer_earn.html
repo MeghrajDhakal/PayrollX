@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Refer & Earn{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1><i class="fas fa-rupee-sign" style="color: var(--warning); margin-right: 8px;"></i> Refer & Earn</h1>
+    <p>Refer businesses to PayrollX and earn rewards for every successful signup</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Your Referral Code</div>
+        <div class="stat-value" style="font-size: 18px; font-family: monospace; letter-spacing: 2px; color: var(--primary);">PX-{{ current_user.username[:4]|upper }}-2026</div>
+        <div class="stat-icon blue"><i class="fas fa-gift"></i></div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Successful Referrals</div>
+        <div class="stat-value">2</div>
+        <div class="stat-change positive"><i class="fas fa-check"></i> Verified</div>
+        <div class="stat-icon green"><i class="fas fa-user-plus"></i></div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Reward Earned</div>
+        <div class="stat-value">₹10,000</div>
+        <div class="stat-change positive"><i class="fas fa-wallet"></i> Total earned</div>
+        <div class="stat-icon orange"><i class="fas fa-rupee-sign"></i></div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Pending</div>
+        <div class="stat-value">1</div>
+        <div class="stat-change negative"><i class="fas fa-hourglass-half"></i> Awaiting signup</div>
+        <div class="stat-icon purple"><i class="fas fa-clock"></i></div>
+    </div>
+</div>
+
+<div class="data-card" style="margin-bottom: 24px;">
+    <div class="data-card-header"><h2><i class="fas fa-bullhorn" style="color: var(--primary); margin-right: 8px;"></i> How It Works</h2></div>
+    <div style="padding: 24px;">
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;">
+            <div style="text-align: center; padding: 20px;">
+                <div style="width: 60px; height: 60px; border-radius: 50%; background: rgba(82,143,240,0.15); color: var(--primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 24px;"><i class="fas fa-share-alt"></i></div>
+                <h3 style="margin-bottom: 8px;">1. Share</h3>
+                <p style="color: var(--text-secondary); font-size: 13px;">Share your unique referral code with businesses that need payroll solutions</p>
+            </div>
+            <div style="text-align: center; padding: 20px;">
+                <div style="width: 60px; height: 60px; border-radius: 50%; background: rgba(46,204,113,0.15); color: var(--success); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 24px;"><i class="fas fa-user-check"></i></div>
+                <h3 style="margin-bottom: 8px;">2. Signup</h3>
+                <p style="color: var(--text-secondary); font-size: 13px;">They sign up using your code and complete their first payroll run</p>
+            </div>
+            <div style="text-align: center; padding: 20px;">
+                <div style="width: 60px; height: 60px; border-radius: 50%; background: rgba(243,156,18,0.15); color: var(--warning); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 24px;"><i class="fas fa-gift"></i></div>
+                <h3 style="margin-bottom: 8px;">3. Earn ₹5,000</h3>
+                <p style="color: var(--text-secondary); font-size: 13px;">You earn ₹5,000 for every successful referral, directly to your bank</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="data-card">
+    <div class="data-card-header"><h2><i class="fas fa-history" style="color: var(--success); margin-right: 8px;"></i> Referral History</h2></div>
+    <table class="data-table">
+        <thead><tr><th>Referred Business</th><th>Date</th><th>Signup Status</th><th>Reward</th></tr></thead>
+        <tbody>
+            <tr>
+                <td><strong>TechVista Solutions Pvt Ltd</strong></td>
+                <td>12 Jan 2026</td>
+                <td><span class="status-badge active">Completed</span></td>
+                <td><strong style="color: var(--success);">₹5,000 ✓</strong></td>
+            </tr>
+            <tr>
+                <td><strong>GreenLeaf Organics</strong></td>
+                <td>28 Feb 2026</td>
+                <td><span class="status-badge active">Completed</span></td>
+                <td><strong style="color: var(--success);">₹5,000 ✓</strong></td>
+            </tr>
+            <tr>
+                <td><strong>CloudSync Innovations</strong></td>
+                <td>10 Mar 2026</td>
+                <td><span class="status-badge pending">Pending</span></td>
+                <td><span style="color: var(--text-muted);">Awaiting</span></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}

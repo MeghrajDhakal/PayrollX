@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}My Pay Slips{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>My Pay Slips</h1>
+    <p>View and download your monthly salary slips</p>
+</div>
+
+<div class="data-card">
+    <div class="data-card-header">
+        <h2>Pay Slip History</h2>
+    </div>
+    {% if payslips %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Employee</th>
+                <th>Period</th>
+                <th>Basic</th>
+                <th>HRA</th>
+                <th>Gross Pay</th>
+                <th>EPF</th>
+                <th>TDS</th>
+                <th>Total Ded.</th>
+                <th>Net Pay</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for slip in payslips %}
+            <tr>
+                <td>
+                    <div class="emp-info">
+                        <div class="emp-avatar">{{ slip.employee.first_name[0] }}{{ slip.employee.last_name[0] }}</div>
+                        <div>
+                            <div class="emp-name">{{ slip.employee.full_name }}</div>
+                            <div class="emp-email">{{ slip.employee.department }}</div>
+                        </div>
+                    </div>
+                </td>
+                <td><strong>{{ slip.month }}/{{ slip.year }}</strong></td>
+                <td>₹{{ "{:,.0f}".format(slip.basic_pay) }}</td>
+                <td>₹{{ "{:,.0f}".format(slip.hra) }}</td>
+                <td>₹{{ "{:,.0f}".format(slip.gross_pay) }}</td>
+                <td>₹{{ "{:,.0f}".format(slip.epf_deduction) }}</td>
+                <td>₹{{ "{:,.0f}".format(slip.tds) }}</td>
+                <td>₹{{ "{:,.0f}".format(slip.total_deductions) }}</td>
+                <td><strong style="color: var(--success);">₹{{ "{:,.0f}".format(slip.net_pay) }}</strong></td>
+                <td>
+                    <a href="{{ url_for('download_payslip', slip_id=slip.slip_id) }}" class="btn btn-primary btn-sm" target="_blank" title="View & Download Payslip">
+                        <i class="fas fa-download"></i> Download
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fas fa-file-invoice-dollar"></i></div>
+        <h3>No Pay Slips Found</h3>
+        <p>Payslips will appear here after a payroll run is completed.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
