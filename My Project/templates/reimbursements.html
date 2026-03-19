@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Reimbursements{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Reimbursements</h1>
+    <p>Submit and track expense reimbursement claims</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Total Claims</div>
+        <div class="stat-value">{{ claims|length }}</div>
+        <div class="stat-icon blue"><i class="fas fa-receipt"></i></div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Pending</div>
+        <div class="stat-value">{{ claims|selectattr('status', 'equalto', 'pending')|list|length }}</div>
+        <div class="stat-icon orange"><i class="fas fa-clock"></i></div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Approved</div>
+        <div class="stat-value">{{ claims|selectattr('status', 'equalto', 'approved')|list|length }}</div>
+        <div class="stat-icon green"><i class="fas fa-check"></i></div>
+    </div>
+</div>
+
+<div class="data-card">
+    <div class="data-card-header">
+        <h2>Reimbursement Claims</h2>
+    </div>
+    {% if claims %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Category</th>
+                <th>Amount</th>
+                <th>Description</th>
+                <th>Date</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for claim in claims %}
+            <tr>
+                <td><span class="status-badge active">{{ claim.category }}</span></td>
+                <td><strong>₹{{ "{:,.0f}".format(claim.amount) }}</strong></td>
+                <td>{{ claim.description or '—' }}</td>
+                <td>{{ claim.receipt_date }}</td>
+                <td><span class="status-badge {{ claim.status }}">{{ claim.status }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fas fa-tags"></i></div>
+        <h3>No Reimbursement Claims</h3>
+        <p>Submit your first expense claim to get started.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

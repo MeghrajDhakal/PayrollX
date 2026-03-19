@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Company Details{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Company Details</h1>
+    <p>Manage your organization's profile and statutory registrations</p>
+</div>
+
+<div class="data-card" style="margin-bottom: 24px;">
+    <div class="data-card-header">
+        <h2><i class="fas fa-building" style="color: var(--primary); margin-right: 8px;"></i> Organization Profile</h2>
+    </div>
+    <div style="padding: 24px;">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Company Name</label>
+                <input type="text" class="form-control" value="{{ current_user.organization }}" readonly>
+            </div>
+            <div class="form-group">
+                <label>Company Type</label>
+                <input type="text" class="form-control" value="Private Limited" readonly>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>CIN</label>
+                <input type="text" class="form-control" value="U72200KA2020PTC123456" readonly>
+            </div>
+            <div class="form-group">
+                <label>PAN</label>
+                <input type="text" class="form-control" value="AABCL1234F" readonly>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>TAN</label>
+                <input type="text" class="form-control" value="BLRL12345F" readonly>
+            </div>
+            <div class="form-group">
+                <label>GSTIN</label>
+                <input type="text" class="form-control" value="29AABCL1234F1Z5" readonly>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="data-card" style="margin-bottom: 24px;">
+    <div class="data-card-header">
+        <h2><i class="fas fa-gavel" style="color: var(--success); margin-right: 8px;"></i> Statutory Registrations</h2>
+    </div>
+    <div style="padding: 24px;">
+        <div class="form-row">
+            <div class="form-group">
+                <label>EPF Establishment Code</label>
+                <input type="text" class="form-control" value="KABLR0012345000" readonly>
+            </div>
+            <div class="form-group">
+                <label>ESI Establishment Code</label>
+                <input type="text" class="form-control" value="31001234560000099" readonly>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Professional Tax Registration</label>
+                <input type="text" class="form-control" value="PTKA12345678" readonly>
+            </div>
+            <div class="form-group">
+                <label>LIN (Labour ID)</label>
+                <input type="text" class="form-control" value="1234567890123456789" readonly>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="data-card">
+    <div class="data-card-header">
+        <h2><i class="fas fa-university" style="color: var(--warning); margin-right: 8px;"></i> Bank Details</h2>
+    </div>
+    <div style="padding: 24px;">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Bank Name</label>
+                <input type="text" class="form-control" value="HDFC Bank" readonly>
+            </div>
+            <div class="form-group">
+                <label>Account Number</label>
+                <input type="text" class="form-control" value="50100012345678" readonly>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>IFSC Code</label>
+                <input type="text" class="form-control" value="HDFC0001234" readonly>
+            </div>
+            <div class="form-group">
+                <label>Branch</label>
+                <input type="text" class="form-control" value="Koramangala, Bangalore" readonly>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Settings</h1>
+    <p>Configure statutory rates, payroll rules, and system preferences</p>
+</div>
+
+<!-- ═══ STATUTORY RATES ═══ -->
+<div class="data-card" style="margin-bottom: 24px;">
+    <div class="data-card-header">
+        <h2><i class="fas fa-sliders-h" style="color: var(--primary); margin-right: 8px;"></i> Statutory Deduction Rates</h2>
+    </div>
+    {% if rates %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Component</th>
+                <th>Description</th>
+                <th>Rate / Amount</th>
+                <th>Max Eligible Salary</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rate in rates %}
+            <tr>
+                <td><strong>{{ rate.rate_type }}</strong></td>
+                <td>{{ rate.description }}</td>
+                <td>
+                    {% if rate.percentage > 100 %}
+                    ₹{{ "{:,.0f}".format(rate.percentage) }}/month
+                    {% else %}
+                    {{ rate.percentage }}%
+                    {% endif %}
+                </td>
+                <td>{% if rate.max_limit %}₹{{ "{:,.0f}".format(rate.max_limit) }}{% else %}No limit{% endif %}</td>
+                <td><span class="status-badge active">Active</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fas fa-cog"></i></div>
+        <h3>No Rates Configured</h3>
+        <p>Statutory rates need to be set up for payroll calculations.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- ═══ GENERAL SETTINGS ═══ -->
+<div class="data-card" style="margin-bottom: 24px;">
+    <div class="data-card-header">
+        <h2><i class="fas fa-cog" style="color: var(--warning); margin-right: 8px;"></i> General Payroll Settings</h2>
+    </div>
+    <div style="padding: 24px;">
+        <div class="settings-section">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Default Working Days / Month</label>
+                    <input type="number" class="form-control" value="22" readonly>
+                </div>
+                <div class="form-group">
+                    <label>Payroll Cycle</label>
+                    <select class="form-control" disabled>
+                        <option selected>Monthly (Last day)</option>
+                        <option>Bi-weekly</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Default Tax Regime</label>
+                    <select class="form-control" disabled>
+                        <option selected>New Regime (FY 2025-26)</option>
+                        <option>Old Regime</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Pay Date</label>
+                    <input type="text" class="form-control" value="Last working day" readonly>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ SECURITY SETTINGS ═══ -->
+<div class="data-card">
+    <div class="data-card-header">
+        <h2><i class="fas fa-shield-alt" style="color: var(--success); margin-right: 8px;"></i> Security & Encryption</h2>
+    </div>
+    <div style="padding: 24px;">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Transit Encryption</label>
+                <input type="text" class="form-control" value="TLS 1.2 Enabled ✓" readonly style="color: var(--success);">
+            </div>
+            <div class="form-group">
+                <label>Data-at-Rest Encryption</label>
+                <input type="text" class="form-control" value="AES-256 Enabled ✓" readonly style="color: var(--success);">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>MFA for Admins</label>
+                <input type="text" class="form-control" value="Enabled ✓" readonly style="color: var(--success);">
+            </div>
+            <div class="form-group">
+                <label>Backup Frequency</label>
+                <input type="text" class="form-control" value="Every 6 hours (Automated)" readonly>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
