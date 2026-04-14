@@ -27,6 +27,7 @@
                     <select name="year" class="form-control" style="width: 120px;">
                         <option value="2025" {% if selected_year == 2025 %}selected{% endif %}>2025</option>
                         <option value="2026" {% if selected_year == 2026 %}selected{% endif %}>2026</option>
+                        <option value="2027" {% if selected_year == 2027 %}selected{% endif %}>2027</option>
                     </select>
                 </div>
                 <button type="submit" class="btn btn-primary">
@@ -36,6 +37,78 @@
         </form>
     </div>
 </div>
+
+{% if current_user.role != 'employee' %}
+<!-- ═══ ADD / UPDATE ATTENDANCE (Admin Only) ═══ -->
+<div class="data-card" style="margin-bottom: 24px;">
+    <div class="data-card-header">
+        <h2><i class="fas fa-user-clock" style="color: var(--success); margin-right: 8px;"></i> Record Attendance</h2>
+        <span class="status-badge active" style="font-size: 11px;">Admin Only</span>
+    </div>
+    <div style="padding: 24px;">
+        <form method="POST" action="{{ url_for('attendance') }}" id="attendanceForm">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="att_emp_id"><i class="fas fa-user" style="margin-right: 4px; opacity: 0.5;"></i> Employee</label>
+                    <select name="emp_id" id="att_emp_id" class="form-control" required>
+                        <option value="">Select employee...</option>
+                        {% for emp in employees %}
+                        <option value="{{ emp.emp_id }}">{{ emp.full_name }} — {{ emp.department }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="att_month"><i class="fas fa-calendar" style="margin-right: 4px; opacity: 0.5;"></i> Month</label>
+                    <select name="month" id="att_month" class="form-control">
+                        {% for i in range(12) %}
+                        <option value="{{ i + 1 }}" {% if selected_month == i + 1 %}selected{% endif %}>{{ months[i] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="att_year"><i class="fas fa-calendar-alt" style="margin-right: 4px; opacity: 0.5;"></i> Year</label>
+                    <select name="year" id="att_year" class="form-control">
+                        <option value="2025" {% if selected_year == 2025 %}selected{% endif %}>2025</option>
+                        <option value="2026" {% if selected_year == 2026 %}selected{% endif %}>2026</option>
+                        <option value="2027" {% if selected_year == 2027 %}selected{% endif %}>2027</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="att_working"><i class="fas fa-briefcase" style="margin-right: 4px; opacity: 0.5;"></i> Total Working Days</label>
+                    <input type="number" name="total_working_days" id="att_working" class="form-control" value="22" min="1" max="31" required>
+                </div>
+                <div class="form-group">
+                    <label for="att_present"><i class="fas fa-check-circle" style="margin-right: 4px; opacity: 0.5; color: var(--success);"></i> Days Present</label>
+                    <input type="number" name="days_present" id="att_present" class="form-control" value="22" min="0" max="31" required>
+                </div>
+                <div class="form-group">
+                    <label for="att_absent"><i class="fas fa-times-circle" style="margin-right: 4px; opacity: 0.5; color: var(--danger);"></i> Days Absent</label>
+                    <input type="number" name="days_absent" id="att_absent" class="form-control" value="0" min="0" max="31">
+                </div>
+                <div class="form-group">
+                    <label for="att_lop"><i class="fas fa-ban" style="margin-right: 4px; opacity: 0.5; color: var(--warning);"></i> LOP Days</label>
+                    <input type="number" name="lop_days" id="att_lop" class="form-control" value="0" min="0" max="31">
+                </div>
+                <div class="form-group">
+                    <label for="att_ot"><i class="fas fa-clock" style="margin-right: 4px; opacity: 0.5; color: var(--primary);"></i> Overtime (hrs)</label>
+                    <input type="number" name="overtime_hours" id="att_ot" class="form-control" value="0" min="0" step="0.5">
+                </div>
+            </div>
+            <div style="display: flex; gap: 12px; align-items: center; margin-top: 8px;">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Save Attendance
+                </button>
+                <span style="font-size: 12px; color: var(--text-muted);">
+                    <i class="fas fa-info-circle"></i> If a record already exists for this employee & period, it will be updated.
+                    Pay will be proportional to days present.
+                </span>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 
 <!-- ═══ SUMMARY STATS ═══ -->
 {% if logs %}
@@ -94,6 +167,9 @@
                 <th>LOP Days</th>
                 <th>Overtime (hrs)</th>
                 <th>Attendance %</th>
+                {% if current_user.role != 'employee' %}
+                <th>Action</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>
@@ -141,6 +217,13 @@
                         <span style="font-size: 12px; font-weight: 600; color: {% if pct >= 95 %}var(--success){% elif pct >= 80 %}var(--warning){% else %}var(--danger){% endif %};">{{ "%.0f"|format(pct) }}%</span>
                     </div>
                 </td>
+                {% if current_user.role != 'employee' %}
+                <td>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="prefillAttendance({{ log.employee.emp_id }}, {{ log.total_working_days }}, {{ log.days_present }}, {{ log.days_absent }}, {{ log.lop_days }}, {{ log.overtime_hours }})">
+                        <i class="fas fa-edit"></i> Edit
+                    </button>
+                </td>
+                {% endif %}
             </tr>
             {% endfor %}
         </tbody>
@@ -149,8 +232,75 @@
     <div class="empty-state">
         <div class="empty-icon"><i class="fas fa-calendar-times"></i></div>
         <h3>No Attendance Records</h3>
-        <p>No attendance data found for {{ months[selected_month - 1] }} {{ selected_year }}. Records are synced from the attendance system.</p>
+        <p>No attendance data found for {{ months[selected_month - 1] }} {{ selected_year }}.
+        {% if current_user.role != 'employee' %}Use the form above to add attendance records.{% endif %}</p>
     </div>
     {% endif %}
 </div>
+
+{% if current_user.role != 'employee' %}
+<!-- ═══ PAY IMPACT INFO ═══ -->
+<div class="data-card" style="margin-top: 24px;">
+    <div class="data-card-header">
+        <h2><i class="fas fa-info-circle" style="color: var(--primary); margin-right: 8px;"></i> How Attendance Affects Pay</h2>
+    </div>
+    <div style="padding: 24px;">
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+            <div style="padding: 16px; background: rgba(46,204,113,0.08); border-radius: 10px; border: 1px solid rgba(46,204,113,0.2);">
+                <div style="font-size: 20px; margin-bottom: 8px;">📊</div>
+                <h4 style="margin-bottom: 6px; color: var(--success);">Proportional Pay</h4>
+                <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                    Pay is calculated as:<br>
+                    <code style="font-size: 11px; background: rgba(0,0,0,0.2); padding: 2px 6px; border-radius: 4px;">
+                    Monthly CTC × (Days Present ÷ Working Days)
+                    </code>
+                </p>
+            </div>
+            <div style="padding: 16px; background: rgba(243,156,18,0.08); border-radius: 10px; border: 1px solid rgba(243,156,18,0.2);">
+                <div style="font-size: 20px; margin-bottom: 8px;">⚠️</div>
+                <h4 style="margin-bottom: 6px; color: var(--warning);">LOP Deduction</h4>
+                <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                    LOP days are deducted <strong>additionally</strong> on top of attendance adjustment. Use LOP for unapproved absences.
+                </p>
+            </div>
+            <div style="padding: 16px; background: rgba(82,143,240,0.08); border-radius: 10px; border: 1px solid rgba(82,143,240,0.2);">
+                <div style="font-size: 20px; margin-bottom: 8px;">💡</div>
+                <h4 style="margin-bottom: 6px; color: var(--primary);">Example</h4>
+                <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                    If CTC = ₹10L/yr & 20/22 days present:<br>
+                    Pay = ₹83,333 × (20/22) = <strong>₹75,757</strong>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function prefillAttendance(empId, working, present, absent, lop, ot) {
+        document.getElementById('att_emp_id').value = empId;
+        document.getElementById('att_working').value = working;
+        document.getElementById('att_present').value = present;
+        document.getElementById('att_absent').value = absent;
+        document.getElementById('att_lop').value = lop;
+        document.getElementById('att_ot').value = ot;
+        // Scroll to form
+        document.getElementById('attendanceForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // Auto-calculate absent days
+    const presentField = document.getElementById('att_present');
+    const workingField = document.getElementById('att_working');
+    const absentField = document.getElementById('att_absent');
+
+    if (presentField && workingField && absentField) {
+        function updateAbsent() {
+            const working = parseInt(workingField.value) || 0;
+            const present = parseInt(presentField.value) || 0;
+            absentField.value = Math.max(0, working - present);
+        }
+        presentField.addEventListener('input', updateAbsent);
+        workingField.addEventListener('input', updateAbsent);
+    }
+</script>
+{% endif %}
 {% endblock %}

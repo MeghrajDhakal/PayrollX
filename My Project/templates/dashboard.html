@@ -6,6 +6,7 @@
     <p>Welcome back, {{ current_user.username }}! Here's your payroll overview.</p>
 </div>
 
+{% if role != 'employee' %}
 <!-- ═══ STATS ═══ -->
 <div class="stats-grid">
     <div class="stat-card animate-in">
@@ -126,4 +127,41 @@
     </table>
     {% endif %}
 </div>
+{% else %}
+<!-- ═══ EMPLOYEE DASHBOARD ═══ -->
+<div class="data-card animate-in">
+    <div class="data-card-header">
+        <h2>My Recent Payslips</h2>
+    </div>
+    {% if recent_slips %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Period</th>
+                <th>Basic Pay</th>
+                <th>Deductions</th>
+                <th>Net Pay</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for slip in recent_slips %}
+            <tr>
+                <td><strong>{{ slip.month }}/{{ slip.year }}</strong></td>
+                <td>₹{{ "{:,.0f}".format(slip.basic_pay) }}</td>
+                <td>₹{{ "{:,.0f}".format(slip.total_deductions) }}</td>
+                <td><strong>₹{{ "{:,.0f}".format(slip.net_pay) }}</strong></td>
+                <td><a href="{{ url_for('download_payslip', slip_id=slip.slip_id) }}" class="btn btn-outline btn-sm">Download</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fas fa-file-invoice"></i></div>
+        <h3>No Payslips Yet</h3>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
 {% endblock %}

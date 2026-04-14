@@ -42,6 +42,7 @@
                 <span class="nav-icon"><i class="fas fa-rupee-sign"></i></span> Refer & Earn
             </a>
 
+            {% if current_user.role != 'employee' %}
             <div class="nav-section-label">Admin Options</div>
             <a href="{{ url_for('people') }}" class="nav-item {% if request.endpoint == 'people' %}active{% endif %}">
                 <span class="nav-icon"><i class="fas fa-users"></i></span> People
@@ -64,6 +65,7 @@
             <a href="{{ url_for('insurance') }}" class="nav-item {% if request.endpoint == 'insurance' %}active{% endif %}">
                 <span class="nav-icon"><i class="fas fa-shield-alt"></i></span> Insurance
             </a>
+            {% endif %}
         </nav>
     </aside>
 
@@ -71,7 +73,7 @@
     <header class="top-bar">
         <div class="top-bar-left">
             <span class="org-heart"><i class="fas fa-heart"></i></span>
-            <span class="org-name">We ♥ {{ current_user.organization }}</span>
+            <span class="org-name">We ♥ {{ current_user.organization.name if current_user.organization else 'My Organization' }}</span>
         </div>
         <div class="top-bar-right">
             <div class="notification-bell"><i class="fas fa-bell"></i></div>

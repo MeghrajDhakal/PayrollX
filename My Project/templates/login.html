@@ -6,6 +6,76 @@
     <title>Log In — PayrollX</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        /* ── Dual Login Mode Toggle ── */
+        .login-mode-toggle {
+            display: flex;
+            background: var(--bg-card, #1e2a3a);
+            border-radius: 10px;
+            padding: 4px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border-color, #2d3a4a);
+        }
+        .login-mode-toggle .mode-btn {
+            flex: 1;
+            padding: 10px 16px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted, #6b7a8d);
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: none;
+            background: transparent;
+            font-family: inherit;
+            user-select: none;
+        }
+        .login-mode-toggle .mode-btn:hover {
+            color: var(--text-primary, #e8edf3);
+        }
+        .login-mode-toggle .mode-btn.active {
+            background: linear-gradient(135deg, #528ff0, #4070d0);
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(82, 143, 240, 0.35);
+        }
+        .login-mode-toggle .mode-btn .mode-icon {
+            display: block;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+
+        /* ── Form Panel Transition ── */
+        .form-panel {
+            display: none;
+            animation: fadeSlideIn 0.35s ease-out;
+        }
+        .form-panel.active {
+            display: block;
+        }
+        @keyframes fadeSlideIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ── Security Badge ── */
+        .security-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: rgba(39, 174, 96, 0.1);
+            border: 1px solid rgba(39, 174, 96, 0.25);
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 11px;
+            color: #27ae60;
+            font-weight: 500;
+        }
+        .security-badge i {
+            font-size: 14px;
+        }
+    </style>
 </head>
 <body>
     <div class="auth-container">
@@ -28,17 +98,52 @@
             {% endif %}
             {% endwith %}
 
-            <form method="POST" action="{{ url_for('login') }}">
+            <!-- ═══ DUAL MODE TOGGLE ═══ -->
+            <div class="login-mode-toggle" id="loginModeToggle">
+                <button type="button" class="mode-btn active" data-mode="admin" id="btnAdminMode">
+                    <span class="mode-icon"><i class="fas fa-building"></i></span>
+                    Organization Admin
+                </button>
+                <button type="button" class="mode-btn" data-mode="employee" id="btnEmployeeMode">
+                    <span class="mode-icon"><i class="fas fa-id-badge"></i></span>
+                    Employee Login
+                </button>
+            </div>
+
+            <div class="security-badge">
+                <i class="fas fa-shield-alt"></i>
+                <span>Secured with JWT & Role-Based Access Control</span>
+            </div>
+
+            <!-- ═══ ADMIN LOGIN FORM ═══ -->
+            <form method="POST" action="{{ url_for('login') }}" class="form-panel active" id="adminForm">
+                <input type="hidden" name="login_mode" value="admin">
                 <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" class="form-control" placeholder="Enter your username" required autofocus>
+                    <label for="username"><i class="fas fa-user" style="margin-right: 6px; opacity: 0.6;"></i>Username</label>
+                    <input type="text" id="username" name="username" class="form-control" placeholder="Enter admin username" required autofocus>
                 </div>
                 <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" class="form-control" placeholder="Enter your password" required>
+                    <label for="admin_password"><i class="fas fa-lock" style="margin-right: 6px; opacity: 0.6;"></i>Password</label>
+                    <input type="password" id="admin_password" name="password" class="form-control" placeholder="Enter your password" required>
                 </div>
-                <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-sign-in-alt"></i> Sign In
+                <button type="submit" class="btn btn-primary" id="btnAdminSubmit">
+                    <i class="fas fa-sign-in-alt"></i> Sign In as Admin
+                </button>
+            </form>
+
+            <!-- ═══ EMPLOYEE LOGIN FORM ═══ -->
+            <form method="POST" action="{{ url_for('login') }}" class="form-panel" id="employeeForm">
+                <input type="hidden" name="login_mode" value="employee">
+                <div class="form-group">
+                    <label for="employee_id"><i class="fas fa-id-card" style="margin-right: 6px; opacity: 0.6;"></i>Employee ID</label>
+                    <input type="text" id="employee_id" name="employee_id" class="form-control" placeholder="e.g. EMP1, EMP2" required>
+                </div>
+                <div class="form-group">
+                    <label for="emp_password"><i class="fas fa-lock" style="margin-right: 6px; opacity: 0.6;"></i>Password</label>
+                    <input type="password" id="emp_password" name="password" class="form-control" placeholder="Enter your password" required>
+                </div>
+                <button type="submit" class="btn btn-primary" id="btnEmployeeSubmit">
+                    <i class="fas fa-sign-in-alt"></i> Sign In as Employee
                 </button>
             </form>
 
@@ -52,8 +157,41 @@
                     <strong>Admin:</strong> admin / admin123 &nbsp;|&nbsp;
                     <strong>Finance:</strong> finance / finance123
                 </p>
+                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                    <strong>Employee:</strong> EMP1 / rahul123 &nbsp;|&nbsp;
+                    EMP2 / priya123
+                </p>
             </div>
         </div>
     </div>
+
+    <script>
+        // ── Dual Login Mode Switcher ──
+        const adminBtn = document.getElementById('btnAdminMode');
+        const employeeBtn = document.getElementById('btnEmployeeMode');
+        const adminForm = document.getElementById('adminForm');
+        const employeeForm = document.getElementById('employeeForm');
+
+        function switchMode(mode) {
+            if (mode === 'admin') {
+                adminBtn.classList.add('active');
+                employeeBtn.classList.remove('active');
+                adminForm.classList.add('active');
+                employeeForm.classList.remove('active');
+                // Focus the admin username field
+                document.getElementById('username').focus();
+            } else {
+                employeeBtn.classList.add('active');
+                adminBtn.classList.remove('active');
+                employeeForm.classList.add('active');
+                adminForm.classList.remove('active');
+                // Focus the employee ID field
+                document.getElementById('employee_id').focus();
+            }
+        }
+
+        adminBtn.addEventListener('click', () => switchMode('admin'));
+        employeeBtn.addEventListener('click', () => switchMode('employee'));
+    </script>
 </body>
 </html>

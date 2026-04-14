@@ -5,6 +5,18 @@ from datetime import datetime, date
 
 db = SQLAlchemy()
 
+class Organization(db.Model):
+    """Tenant/Organization Master Data"""
+    __tablename__ = 'organizations'
+    org_id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships to enable easy cascade/access
+    users = db.relationship('User', backref='organization', lazy=True)
+    employees = db.relationship('Employee', backref='organization', lazy=True)
+    payroll_runs = db.relationship('PayrollRun', backref='organization', lazy=True)
+
 
 class User(UserMixin, db.Model):
     """Login/Authentication user model"""
@@ -15,7 +27,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), default='employee')  # employee, hr_admin, finance
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    organization = db.Column(db.String(200), default='LEARNTODAY DIGITAL PRIVATE LIMITED')
+    org_id = db.Column(db.Integer, db.ForeignKey('organizations.org_id'), nullable=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -43,6 +55,7 @@ class Employee(db.Model):
     date_of_joining = db.Column(db.Date, default=date.today)
     date_of_exit = db.Column(db.Date, nullable=True)
     status = db.Column(db.String(20), default='active')  # active, inactive, exited
+    org_id = db.Column(db.Integer, db.ForeignKey('organizations.org_id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     salary_structures = db.relationship('SalaryStructure', backref='employee', lazy=True)
@@ -60,6 +73,7 @@ class SalaryStructure(db.Model):
     __tablename__ = 'salary_structures'
     struct_id = db.Column(db.Integer, primary_key=True)
     emp_id = db.Column(db.Integer, db.ForeignKey('employees.emp_id'), nullable=False)
+    org_id = db.Column(db.Integer, db.ForeignKey('organizations.org_id'), nullable=True)
     ctc_annual = db.Column(db.Float, nullable=False)
     basic_pay = db.Column(db.Float, nullable=False)
     hra = db.Column(db.Float, nullable=False)
@@ -77,6 +91,7 @@ class AttendanceLog(db.Model):
     __tablename__ = 'attendance_logs'
     log_id = db.Column(db.Integer, primary_key=True)
     emp_id = db.Column(db.Integer, db.ForeignKey('employees.emp_id'), nullable=False)
+    org_id = db.Column(db.Integer, db.ForeignKey('organizations.org_id'), nullable=True)
     month = db.Column(db.Integer, nullable=False)
     year = db.Column(db.Integer, nullable=False)
     total_working_days = db.Column(db.Integer, default=22)
@@ -105,6 +120,7 @@ class PayrollRun(db.Model):
     month = db.Column(db.Integer, nullable=False)
     year = db.Column(db.Integer, nullable=False)
     status = db.Column(db.String(20), default='draft')  # draft, pending, approved, finalized
+    org_id = db.Column(db.Integer, db.ForeignKey('organizations.org_id'), nullable=True)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     approver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     total_gross = db.Column(db.Float, default=0)
@@ -123,6 +139,7 @@ class Payslip(db.Model):
     slip_id = db.Column(db.Integer, primary_key=True)
     run_id = db.Column(db.Integer, db.ForeignKey('payroll_runs.run_id'), nullable=False)
     emp_id = db.Column(db.Integer, db.ForeignKey('employees.emp_id'), nullable=False)
+    org_id = db.Column(db.Integer, db.ForeignKey('organizations.org_id'), nullable=True)
     month = db.Column(db.Integer, nullable=False)
     year = db.Column(db.Integer, nullable=False)
     basic_pay = db.Column(db.Float, default=0)
@@ -147,6 +164,7 @@ class TaxDeclaration(db.Model):
     __tablename__ = 'tax_declarations'
     declaration_id = db.Column(db.Integer, primary_key=True)
     emp_id = db.Column(db.Integer, db.ForeignKey('employees.emp_id'), nullable=False)
+    org_id = db.Column(db.Integer, db.ForeignKey('organizations.org_id'), nullable=True)
     financial_year = db.Column(db.String(9), nullable=False)  # e.g. 2025-2026
     regime = db.Column(db.String(10), default='new')  # old, new
     section_80c = db.Column(db.Float, default=0)  # PPF, ELSS, LIC etc.
@@ -165,6 +183,7 @@ class Reimbursement(db.Model):
     __tablename__ = 'reimbursements'
     claim_id = db.Column(db.Integer, primary_key=True)
     emp_id = db.Column(db.Integer, db.ForeignKey('employees.emp_id'), nullable=False)
+    org_id = db.Column(db.Integer, db.ForeignKey('organizations.org_id'), nullable=True)
     category = db.Column(db.String(50), nullable=False)  # travel, medical, food, other
     amount = db.Column(db.Float, nullable=False)
     description = db.Column(db.String(300))
@@ -179,6 +198,7 @@ class AuditLog(db.Model):
     __tablename__ = 'audit_logs'
     audit_id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    org_id = db.Column(db.Integer, db.ForeignKey('organizations.org_id'), nullable=True)
     action = db.Column(db.String(100), nullable=False)
     entity_type = db.Column(db.String(50))
     entity_id = db.Column(db.Integer)
