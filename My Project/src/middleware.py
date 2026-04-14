@@ -236,12 +236,18 @@ def generate_payslip_pdf(slip, emp, salary, org_name):
     Returns:
         bytes — the PDF content as a byte string
     """
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-    from reportlab.lib.colors import HexColor
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
-                                     Paragraph, Spacer)
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.lib.colors import HexColor
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                         Paragraph, Spacer)
+    except ImportError:
+        # ReportLab not available (e.g. Vercel) — return a plain-text fallback
+        return (f"PayrollX Payslip — {emp.full_name}\n"
+                f"Net Pay: {slip.net_pay}\n"
+                f"ReportLab unavailable in this environment.").encode('utf-8')
     from io import BytesIO
 
     buffer = BytesIO()

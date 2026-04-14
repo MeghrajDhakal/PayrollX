@@ -10,6 +10,14 @@ if getattr(sys, 'frozen', False):
     BASE_DIR = os.environ.get('PAYROLLX_BASE_DIR', os.path.dirname(sys.executable))
     # Bundled resources are in PyInstaller's temp dir
     BUNDLE_DIR = os.environ.get('PAYROLLX_BUNDLE_DIR', sys._MEIPASS)
+elif IS_VERCEL:
+    # Vercel serverless — src/ is one level deeper
+    SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = os.path.dirname(SRC_DIR)  # My Project/
+    BUNDLE_DIR = BASE_DIR
+    # Ensure src/ is on sys.path so imports work
+    if SRC_DIR not in sys.path:
+        sys.path.insert(0, SRC_DIR)
 else:
     # Running as script — go up one level from src/
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
