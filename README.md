@@ -5,7 +5,6 @@ A production-ready, multi-tenant payroll management system with JWT authenticati
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.1-green?logo=flask&logoColor=white)
 ![JWT](https://img.shields.io/badge/Auth-JWT+Session-orange?logo=jsonwebtokens&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-purple)
 
 ---
 
