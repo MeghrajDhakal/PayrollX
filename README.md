@@ -49,7 +49,7 @@ A production-ready, multi-tenant payroll management system with JWT authenticati
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/PayrollX.git
+git clone https://github.com/MeghrajDhakal/PayrollX.git
 cd PayrollX/PayrollManagementSystem/My\ Project
 
 # Install dependencies
