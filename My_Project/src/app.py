@@ -6,9 +6,11 @@ import secrets
 from datetime import datetime, date, timedelta
 from functools import wraps
 
+import io
+
 from flask import (
     Flask, render_template, request, redirect, url_for,
-    flash, jsonify, make_response, abort, g, session
+    flash, jsonify, make_response, abort, g, session, send_file
 )
 from flask_login import (
     LoginManager, login_user, logout_user, login_required, current_user
@@ -559,13 +561,14 @@ def api_generate_receipt():
               'July', 'August', 'September', 'October', 'November', 'December']
     month_name = months[slip.month] if 1 <= slip.month <= 12 else str(slip.month)
 
-    response = make_response(pdf_bytes)
-    response.headers['Content-Type'] = 'application/pdf'
     safe_emp_name = "".join(c for c in emp.full_name if c.isalnum() or c in (' ', '_')).replace(" ", "_")
-    response.headers['Content-Disposition'] = (
-        f'attachment; filename="payslip_{safe_emp_name}_{month_name}_{slip.year}.pdf"'
+    filename = f"payslip_{safe_emp_name}_{month_name}_{slip.year}.pdf"
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=filename
     )
-    return response
 
 
 @app.route('/api/v1/employees', methods=['GET'])
@@ -917,13 +920,14 @@ def download_payslip_pdf(slip_id):
               'July', 'August', 'September', 'October', 'November', 'December']
     month_name = months[slip.month] if 1 <= slip.month <= 12 else str(slip.month)
 
-    response = make_response(pdf_bytes)
-    response.headers['Content-Type'] = 'application/pdf'
     safe_emp_name = "".join(c for c in emp.full_name if c.isalnum() or c in (' ', '_')).replace(" ", "_")
-    response.headers['Content-Disposition'] = (
-        f'attachment; filename="payslip_{safe_emp_name}_{month_name}_{slip.year}.pdf"'
+    filename = f"payslip_{safe_emp_name}_{month_name}_{slip.year}.pdf"
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=filename
     )
-    return response
 
 
 @app.route('/attendance', methods=['GET', 'POST'])
@@ -1562,11 +1566,16 @@ _db_initialized = False
 
 @app.before_request
 def initialize_database():
-    """Ensure database schema is created and seeded on startup."""
+    """Ensure database schema is created and seeded on startup for local SQLite development."""
     global _db_initialized
     if not _db_initialized:
-        db.create_all()
-        seed_database()
+        uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
+        if uri.startswith('sqlite'):
+            try:
+                db.create_all()
+                seed_database()
+            except Exception:
+                pass
         _db_initialized = True
 
 

@@ -18,12 +18,4 @@ for path in [SRC_DIR, PROJECT_DIR, ROOT_DIR]:
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from app import app, db, seed_database
-
-# Pre-initialize SQLite schema and seed demo data in /tmp during cold start
-try:
-    with app.app_context():
-        db.create_all()
-        seed_database()
-except Exception:
-    pass
+from app import app

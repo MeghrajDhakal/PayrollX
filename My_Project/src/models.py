@@ -10,13 +10,14 @@ db = SQLAlchemy()
 
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
-    """Ensure SQLite enforces Foreign Key and Check constraints."""
-    try:
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-    except Exception:
-        pass
+    """Ensure SQLite enforces Foreign Key and Check constraints (no-op on PostgreSQL)."""
+    if dbapi_connection.__class__.__module__.startswith('sqlite3'):
+        try:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+        except Exception:
+            pass
 
 
 class Organization(db.Model):

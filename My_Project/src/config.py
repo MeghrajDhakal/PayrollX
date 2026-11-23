@@ -23,34 +23,36 @@ else:
 
 
 def validate_production_secrets():
-    """Fails fast at startup if critical production secrets are missing or default."""
-    if IS_VERCEL:
-        # On Vercel serverless demo deployment, allow fallback demo secrets so the demo runs out-of-the-box
-        return
-
+    """Fails fast at startup if critical production or Vercel secrets are missing or default."""
     env = os.environ.get('PAYROLLX_ENV', os.environ.get('FLASK_ENV', 'development')).lower()
-    if env != 'production':
+    is_prod_or_vercel = (
+        env == 'production' or
+        os.environ.get('VERCEL') == '1' or
+        bool(os.environ.get('VERCEL_ENV'))
+    )
+    if not is_prod_or_vercel:
         return
 
     secret_key = os.environ.get('SECRET_KEY')
-    if not secret_key or secret_key.strip() in ('', 'payroll-secret-key-2026-razorpay-clone', 'dev-secret-change-in-production'):
+    if not secret_key or secret_key.strip() in (
+        '',
+        'payroll-secret-key-2026-razorpay-clone',
+        'dev-secret-change-in-production',
+        'dev-insecure-secret-key-only-for-local-testing-2026',
+        'payrollx-vercel-demo-secret-2026-secure-key'
+    ):
         raise ValueError(
-            "FATAL: Production mode requires a secure, non-default 'SECRET_KEY' environment variable. "
-            "Generate one with: python3 -c 'import secrets; print(secrets.token_hex(32))'"
-        )
-
-    jwt_secret = os.environ.get('JWT_SECRET_KEY')
-    if not jwt_secret or jwt_secret.strip() in ('', 'payrollx-jwt-secret-prod-2026-xK9mZ', 'dev-jwt-secret-change-in-production'):
-        raise ValueError(
-            "FATAL: Production mode requires a secure, non-default 'JWT_SECRET_KEY' environment variable. "
+            "FATAL: Production/Vercel mode requires a secure 'SECRET_KEY' environment variable. "
+            "Please configure SECRET_KEY in Vercel Project Settings -> Environment Variables. "
             "Generate one with: python3 -c 'import secrets; print(secrets.token_hex(32))'"
         )
 
     db_url = os.environ.get('DATABASE_URL')
-    if not db_url and not IS_VERCEL:
+    if not db_url or not db_url.strip():
         raise ValueError(
-            "FATAL: Production mode requires a managed PostgreSQL 'DATABASE_URL' environment variable "
-            "(e.g. postgresql://user:pass@host:5432/payrollx)."
+            "FATAL: Production/Vercel mode requires a managed PostgreSQL 'DATABASE_URL' environment variable "
+            "(e.g. postgresql://user:password@ep-xyz.neon.tech/payrollx?sslmode=require). "
+            "Please paste your pooled PostgreSQL connection string into Vercel Project Settings -> Environment Variables."
         )
 
 
@@ -60,22 +62,17 @@ class Config:
 
     # Secret keys
     SECRET_KEY = os.environ.get('SECRET_KEY') or (
-        'payrollx-vercel-demo-secret-2026-secure-key' if IS_VERCEL else (
-            'dev-insecure-secret-key-only-for-local-testing-2026' if not IS_PRODUCTION else None
-        )
+        'dev-insecure-secret-key-only-for-local-testing-2026' if not IS_PRODUCTION and not IS_VERCEL else None
     )
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or (
-        'payrollx-vercel-demo-jwt-2026-secure-key' if IS_VERCEL else (
-            'dev-insecure-jwt-key-only-for-local-testing-2026' if not IS_PRODUCTION else None
-        )
+        os.environ.get('SECRET_KEY') if (IS_PRODUCTION or IS_VERCEL) else 'dev-insecure-jwt-key-only-for-local-testing-2026'
     )
     JWT_EXPIRY_HOURS = int(os.environ.get('JWT_EXPIRY_HOURS', 8))
     JWT_ALGORITHM = 'HS256'
 
     # ── Session Cookie Hardening ──
     SESSION_COOKIE_HTTPONLY = True
-    # Secure cookie enabled in production or if explicitly configured
-    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'true' if IS_PRODUCTION else 'false').lower() == 'true'
+    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'true' if (IS_PRODUCTION or IS_VERCEL) else 'false').lower() == 'true'
     SESSION_COOKIE_SAMESITE = 'Lax'
     PERMANENT_SESSION_LIFETIME = timedelta(hours=int(os.environ.get('SESSION_LIFETIME_HOURS', 8)))
     SESSION_IDLE_TIMEOUT_MINUTES = int(os.environ.get('SESSION_IDLE_TIMEOUT_MINUTES', 30))
@@ -87,8 +84,8 @@ class Config:
         if raw_db_url.startswith('postgres://'):
             raw_db_url = raw_db_url.replace('postgres://', 'postgresql://', 1)
         SQLALCHEMY_DATABASE_URI = raw_db_url
-    elif IS_VERCEL:
-        SQLALCHEMY_DATABASE_URI = 'sqlite:////tmp/payroll.db'
+    elif IS_VERCEL or IS_PRODUCTION:
+        SQLALCHEMY_DATABASE_URI = None
     else:
         INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
         os.makedirs(INSTANCE_DIR, exist_ok=True)
@@ -96,28 +93,18 @@ class Config:
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # Connection pooling for SQLAlchemy (tuned for PostgreSQL / SQLite)
-    if SQLALCHEMY_DATABASE_URI.startswith('sqlite'):
+    # ── Serverless Pooled Engine Options ──
+    if SQLALCHEMY_DATABASE_URI and SQLALCHEMY_DATABASE_URI.startswith('postgres'):
         SQLALCHEMY_ENGINE_OPTIONS = {
-            'connect_args': {'check_same_thread': False}
+            "pool_pre_ping": True,
+            "pool_recycle": int(os.environ.get('DB_POOL_RECYCLE', 300)),
+            "connect_args": {"sslmode": os.environ.get('DB_SSL_MODE', "require")},
         }
     else:
         SQLALCHEMY_ENGINE_OPTIONS = {
-            'pool_size': int(os.environ.get('DB_POOL_SIZE', 10)),
-            'max_overflow': int(os.environ.get('DB_MAX_OVERFLOW', 20)),
-            'pool_timeout': int(os.environ.get('DB_POOL_TIMEOUT', 30)),
-            'pool_recycle': int(os.environ.get('DB_POOL_RECYCLE', 1800)),
-            'pool_pre_ping': True,
+            "connect_args": {"check_same_thread": False}
         }
 
     # ── File Upload Bounds ──
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB max payload size
     ALLOWED_UPLOAD_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
-
-    # ── Directories ──
-    if IS_VERCEL:
-        PDF_OUTPUT_DIR = '/tmp/payslips'
-    else:
-        INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
-        PDF_OUTPUT_DIR = os.path.join(INSTANCE_DIR, 'payslips')
-    os.makedirs(PDF_OUTPUT_DIR, exist_ok=True)
