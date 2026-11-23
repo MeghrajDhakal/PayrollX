@@ -25,30 +25,26 @@ else:
 def validate_production_secrets():
     """Fails fast at startup if critical production or Vercel secrets are missing or default."""
     env = os.environ.get('PAYROLLX_ENV', os.environ.get('FLASK_ENV', 'development')).lower()
-    is_prod_or_vercel = (
-        env == 'production' or
-        os.environ.get('VERCEL') == '1' or
-        bool(os.environ.get('VERCEL_ENV'))
-    )
-    if not is_prod_or_vercel:
+    is_prod = env == 'production'
+    is_vercel = bool(os.environ.get('VERCEL') == '1' or os.environ.get('VERCEL_ENV'))
+    if not is_prod and not is_vercel:
         return
 
     secret_key = os.environ.get('SECRET_KEY')
-    if not secret_key or secret_key.strip() in (
+    if is_prod and (not secret_key or secret_key.strip() in (
         '',
         'payroll-secret-key-2026-razorpay-clone',
         'dev-secret-change-in-production',
-        'dev-insecure-secret-key-only-for-local-testing-2026',
-        'payrollx-vercel-demo-secret-2026-secure-key'
-    ):
+        'dev-insecure-secret-key-only-for-local-testing-2026'
+    )):
         raise ValueError(
-            "FATAL: Production/Vercel mode requires a secure 'SECRET_KEY' environment variable. "
-            "Please configure SECRET_KEY in Vercel Project Settings -> Environment Variables. "
+            "FATAL: Production mode requires a secure 'SECRET_KEY' environment variable. "
+            "Please configure SECRET_KEY in your environment. "
             "Generate one with: python3 -c 'import secrets; print(secrets.token_hex(32))'"
         )
 
     db_url = os.environ.get('DATABASE_URL')
-    if not db_url or not db_url.strip():
+    if (is_prod or is_vercel) and (not db_url or not db_url.strip()):
         raise ValueError(
             "FATAL: Production/Vercel mode requires a managed PostgreSQL 'DATABASE_URL' environment variable "
             "(e.g. postgresql://user:password@ep-xyz.neon.tech/payrollx?sslmode=require). "
@@ -62,7 +58,9 @@ class Config:
 
     # Secret keys
     SECRET_KEY = os.environ.get('SECRET_KEY') or (
-        'dev-insecure-secret-key-only-for-local-testing-2026' if not IS_PRODUCTION and not IS_VERCEL else None
+        'payrollx-vercel-demo-secret-2026-secure-key' if IS_VERCEL else (
+            'dev-insecure-secret-key-only-for-local-testing-2026' if not IS_PRODUCTION else None
+        )
     )
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or (
         os.environ.get('SECRET_KEY') if (IS_PRODUCTION or IS_VERCEL) else 'dev-insecure-jwt-key-only-for-local-testing-2026'

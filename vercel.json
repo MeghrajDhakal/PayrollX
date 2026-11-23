@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "routes": [
+  "framework": null,
+  "rewrites": [
     {
-      "src": "/(.*)",
-      "dest": "api/index.py"
+      "source": "/(.*)",
+      "destination": "/api/index.py"
     }
   ]
 }
