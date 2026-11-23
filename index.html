@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PayrollX — Multi-Tenant Payroll & Statutory Compliance System</title>
+  <link rel="icon" href="https://img.icons8.com/fluency/48/bank-card-back-side.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --secondary: #0ea5e9;
+      --dark-navy: #0b1329;
+      --card-bg: rgba(15, 23, 42, 0.75);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-green: #10b981;
+      --accent-orange: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: radial-gradient(circle at 50% 0%, #1e293b 0%, #0b1329 70%, #020617 100%);
+      color: var(--text-main);
+      min-height: 100vh;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    .container {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    header {
+      padding: 28px 0;
+      border-bottom: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(11, 19, 41, 0.85);
+    }
+
+    .nav-wrapper {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: #fff;
+      text-decoration: none;
+      letter-spacing: -0.5px;
+    }
+
+    .brand-badge {
+      background: linear-gradient(135deg, #3b82f6, #06b6d4);
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #2563eb, #0284c7);
+      color: #ffffff;
+      box-shadow: 0 4px 18px rgba(37, 99, 235, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #1d4ed8, #0369a1);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px rgba(37, 99, 235, 0.5);
+    }
+
+    .btn-outline {
+      background: rgba(255, 255, 255, 0.05);
+      color: #cbd5e1;
+      border: 1px solid var(--card-border);
+    }
+
+    .btn-outline:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 80px 0 60px;
+      text-align: center;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 24px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.15); }
+    }
+
+    .hero h1 {
+      font-size: 3.2rem;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -1px;
+      margin-bottom: 20px;
+      background: linear-gradient(180deg, #ffffff 40%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      max-width: 720px;
+      margin: 0 auto 36px;
+      line-height: 1.6;
+    }
+
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 48px;
+    }
+
+    /* Notice Banner */
+    .notice-card {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 12px;
+      padding: 16px 20px;
+      max-width: 780px;
+      margin: 0 auto 60px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      text-align: left;
+    }
+
+    .notice-icon {
+      font-size: 1.5rem;
+      flex-shrink: 0;
+    }
+
+    .notice-text {
+      font-size: 0.92rem;
+      color: #cbd5e1;
+    }
+
+    .notice-text strong {
+      color: #38bdf8;
+    }
+
+    /* Credentials Card */
+    .credentials-section {
+      margin-bottom: 70px;
+    }
+
+    .section-title {
+      font-size: 1.8rem;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+
+    .section-desc {
+      text-align: center;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+      font-size: 1rem;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      backdrop-filter: blur(16px);
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .card:hover {
+      border-color: rgba(59, 130, 246, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .card-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    .badge-admin {
+      background: rgba(37, 99, 235, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(37, 99, 235, 0.3);
+    }
+
+    .badge-emp {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .cred-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.9rem;
+    }
+
+    .cred-row:last-child {
+      border-bottom: none;
+    }
+
+    .cred-label {
+      color: var(--text-muted);
+    }
+
+    .cred-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: #f1f5f9;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    /* Feature Grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+      margin-bottom: 70px;
+    }
+
+    .feature-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 28px;
+      text-align: left;
+    }
+
+    .feature-icon {
+      font-size: 1.8rem;
+      margin-bottom: 16px;
+      display: inline-block;
+    }
+
+    .feature-card h3 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
+    /* CLI snippet */
+    .cli-box {
+      background: #020617;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 20px 24px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.88rem;
+      color: #38bdf8;
+      max-width: 780px;
+      margin: 0 auto 60px;
+      text-align: left;
+      overflow-x: auto;
+    }
+
+    .cli-comment {
+      color: #64748b;
+    }
+
+    footer {
+      border-top: 1px solid var(--card-border);
+      padding: 40px 0;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.88rem;
+    }
+
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2.2rem; }
+      .hero p { font-size: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="container nav-wrapper">
+      <a href="#" class="brand">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="5" width="20" height="14" rx="2"></rect>
+          <line x1="2" y1="10" x2="22" y2="10"></line>
+        </svg>
+        PayrollX
+        <span class="brand-badge">Live Production Demo</span>
+      </a>
+      <div class="nav-links">
+        <a href="https://github.com/MeghrajDhakal/PayrollX" class="btn btn-outline" target="_blank">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          GitHub Repo
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Hero Section -->
+    <section class="hero">
+      <div class="status-pill">
+        <span class="status-dot"></span>
+        Production Audited & Hardened (22/22 Automated Tests Passed)
+      </div>
+      <h1>Enterprise Multi-Tenant Payroll & Statutory Compliance</h1>
+      <p>
+        Built on Python 3.13, Flask 3.1, SQLAlchemy 2.1, and ReportLab. Featuring Row-Level Tenant Security, 
+        Bcrypt session protection, idempotent payroll runs, and Indian statutory filings (EPF, ESI, PT, TDS).
+      </p>
+      <div class="hero-actions">
+        <a href="https://github.com/MeghrajDhakal/PayrollX" class="btn btn-primary" target="_blank">
+          View on GitHub &amp; Deploy
+        </a>
+        <a href="https://github.com/MeghrajDhakal/PayrollX/blob/main/DEPLOY.md" class="btn btn-outline" target="_blank">
+          Deployment Guide (DEPLOY.md)
+        </a>
+      </div>
+
+      <!-- Informational Hosting Banner -->
+      <div class="notice-card">
+        <div class="notice-icon">ℹ️</div>
+        <div class="notice-text">
+          <strong>GitHub Pages Note:</strong> GitHub Pages is a static documentation host and cannot execute live Python Flask/SQLAlchemy backends. 
+          The full live dynamic application runs via <strong>Vercel</strong> or <strong>Gunicorn/Docker/Render</strong>.
+        </div>
+      </div>
+    </section>
+
+    <!-- Demo Credentials -->
+    <section class="credentials-section">
+      <h2 class="section-title">Pre-Seeded Demo Credentials</h2>
+      <p class="section-desc">Test the dual-entry authentication and multi-tenant Role-Based Access Control:</p>
+
+      <div class="grid-2">
+        <div class="card">
+          <span class="card-badge badge-admin">HR Admin / Finance</span>
+          <div class="cred-row">
+            <span class="cred-label">Login Mode</span>
+            <span class="cred-val">Admin Login</span>
+          </div>
+          <div class="cred-row">
+            <span class="cred-label">Username</span>
+            <span class="cred-val">admin</span>
+          </div>
+          <div class="cred-row">
+            <span class="cred-label">Password</span>
+            <span class="cred-val">admin123</span>
+          </div>
+          <div class="cred-row">
+            <span class="cred-label">Role Capabilities</span>
+            <span style="font-size:0.85rem; color:#94a3b8;">Run Payroll, Add Employees, View Reports</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <span class="card-badge badge-emp">Employee Self-Service</span>
+          <div class="cred-row">
+            <span class="cred-label">Login Mode</span>
+            <span class="cred-val">Employee Tab</span>
+          </div>
+          <div class="cred-row">
+            <span class="cred-label">Employee ID</span>
+            <span class="cred-val">EMP1</span>
+          </div>
+          <div class="cred-row">
+            <span class="cred-label">Password</span>
+            <span class="cred-val">rahul123</span>
+          </div>
+          <div class="cred-row">
+            <span class="cred-label">Role Capabilities</span>
+            <span style="font-size:0.85rem; color:#94a3b8;">View Own Payslips &amp; Download PDF (IDOR Protected)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Architecture & Features -->
+    <section>
+      <h2 class="section-title">Enterprise Architecture Features</h2>
+      <p class="section-desc">Designed to withstand concurrent load, malicious input, and cross-tenant attacks</p>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <span class="feature-icon">🛡️</span>
+          <h3>Row-Level Tenant Isolation</h3>
+          <p>Every SQLAlchemy query is scoped to <code>org_id</code> at the query layer. Cross-tenant IDOR attacks on payslip PDFs or employee records return 403/404.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">⚡</span>
+          <h3>Atomic Transactions &amp; Idempotency</h3>
+          <p>Payroll calculation runs inside short atomic transactions. Double-clicks or duplicate requests with an <code>Idempotency-Key</code> safely return the original result.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">📄</span>
+          <h3>Server-Side PDF Generation</h3>
+          <p>High-fidelity, printable payslip PDFs generated in memory using ReportLab without holding database locks open during rendering.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">🔐</span>
+          <h3>Bcrypt &amp; Session Invalidation</h3>
+          <p>Passwords hashed with Bcrypt (12 rounds). Logging out clears the server-side session token, immediately rejecting any copied or stolen cookies.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">📊</span>
+          <h3>Observability &amp; PII Masking</h3>
+          <p>Emits structured JSON logs with correlation <code>request_id</code> and latency. Sensitive PAN, Aadhaar, bank details, and passwords are masked automatically.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">🚀</span>
+          <h3>Production WSGI &amp; Migrations</h3>
+          <p>Configured with Gunicorn gthread workers, connection pool tuning, and Alembic database migrations (Flask-Migrate).</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Quick Start CLI -->
+    <section>
+      <h2 class="section-title">Quick Start in 3 Commands</h2>
+      <p class="section-desc">Run PayrollX locally with SQLite or connect to Managed PostgreSQL:</p>
+
+      <div class="cli-box">
+        <div class="cli-comment"># 1. Clone repository &amp; enter project</div>
+        <div>git clone https://github.com/MeghrajDhakal/PayrollX.git &amp;&amp; cd PayrollX/My_Project</div>
+        <br>
+        <div class="cli-comment"># 2. Install pinned dependencies &amp; run migrations</div>
+        <div>pip install -r requirements.txt &amp;&amp; PYTHONPATH=src flask db upgrade</div>
+        <br>
+        <div class="cli-comment"># 3. Start the application (auto-opens browser at http://127.0.0.1:5000)</div>
+        <div>python launch.py</div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>&copy; 2026 PayrollX. All rights reserved. Built for Indian statutory compliance.</p>
+    </div>
+  </footer>
+
+</body>
+</html>
