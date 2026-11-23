@@ -687,6 +687,8 @@ def api_run_payroll():
 @app.route('/')
 @app.route('/app')
 @app.route('/home')
+@app.route('/api/index')
+@app.route('/api/index.py')
 def home():
     return render_template('home.html')
 
