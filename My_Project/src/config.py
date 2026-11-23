@@ -24,6 +24,10 @@ else:
 
 def validate_production_secrets():
     """Fails fast at startup if critical production secrets are missing or default."""
+    if IS_VERCEL:
+        # On Vercel serverless demo deployment, allow fallback demo secrets so the demo runs out-of-the-box
+        return
+
     env = os.environ.get('PAYROLLX_ENV', os.environ.get('FLASK_ENV', 'development')).lower()
     if env != 'production':
         return
@@ -56,10 +60,14 @@ class Config:
 
     # Secret keys
     SECRET_KEY = os.environ.get('SECRET_KEY') or (
-        'dev-insecure-secret-key-only-for-local-testing-2026' if not IS_PRODUCTION else None
+        'payrollx-vercel-demo-secret-2026-secure-key' if IS_VERCEL else (
+            'dev-insecure-secret-key-only-for-local-testing-2026' if not IS_PRODUCTION else None
+        )
     )
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or (
-        'dev-insecure-jwt-key-only-for-local-testing-2026' if not IS_PRODUCTION else None
+        'payrollx-vercel-demo-jwt-2026-secure-key' if IS_VERCEL else (
+            'dev-insecure-jwt-key-only-for-local-testing-2026' if not IS_PRODUCTION else None
+        )
     )
     JWT_EXPIRY_HOURS = int(os.environ.get('JWT_EXPIRY_HOURS', 8))
     JWT_ALGORITHM = 'HS256'

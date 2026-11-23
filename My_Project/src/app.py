@@ -682,6 +682,8 @@ def api_run_payroll():
 # PUBLIC ROUTES (No Login Required)
 # ────────────────────────────────────────────
 @app.route('/')
+@app.route('/app')
+@app.route('/home')
 def home():
     return render_template('home.html')
 
