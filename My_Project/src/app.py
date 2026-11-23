@@ -1,50 +1,203 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, make_response, abort, g
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from config import Config
-from models import db, User, Employee, Organization, SalaryStructure, AttendanceLog, StatutoryRate, PayrollRun, Payslip, TaxDeclaration, Reimbursement, AuditLog
-from datetime import datetime, date
+import os
+import sys
+import uuid
+import time
+import secrets
+from datetime import datetime, date, timedelta
 from functools import wraps
 
-import os
-from config import BUNDLE_DIR
+from flask import (
+    Flask, render_template, request, redirect, url_for,
+    flash, jsonify, make_response, abort, g, session
+)
+from flask_login import (
+    LoginManager, login_user, logout_user, login_required, current_user
+)
+from flask_migrate import Migrate
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from sqlalchemy import text
+from sqlalchemy.orm import joinedload
+from pydantic import ValidationError
 
+from config import Config, BUNDLE_DIR, IS_PRODUCTION
+from models import (
+    db, User, Employee, Organization, SalaryStructure, AttendanceLog,
+    StatutoryRate, PayrollRun, Payslip, TaxDeclaration, Reimbursement,
+    AuditLog, IdempotencyRecord, RevokedToken
+)
+from middleware import (
+    generate_jwt, decode_jwt, jwt_required, jwt_or_session_required,
+    org_admin_required, role_api_required, register_audit_interceptor,
+    generate_payslip_pdf
+)
+from schemas import (
+    LoginSchema, RegisterSchema, EmployeeCreateSchema,
+    RunPayrollSchema, AttendanceUpdateSchema, ReimbursementCreateSchema
+)
+from logging_config import configure_logging
+from idempotency import get_idempotency_key, get_idempotent_response, save_idempotent_response, compute_request_hash
+
+# ── Flask Application Setup ──
 app = Flask(__name__,
             template_folder=os.path.join(BUNDLE_DIR, 'templates'),
             static_folder=os.path.join(BUNDLE_DIR, 'static'))
 app.config.from_object(Config)
 
-db.init_app(app)
+# Configure structured JSON logging
+configure_logging(app)
 
+db.init_app(app)
+migrate = Migrate(app, db)
+
+# ── Flask-Limiter for Rate Limiting ──
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+    enabled=not app.config.get('TESTING', False)
+)
+
+# ── Flask-Login Configuration ──
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Please log in to access payroll features.'
 login_manager.login_message_category = 'info'
 
-# ── Register Middleware ──
-from middleware import (
-    generate_jwt, decode_jwt, jwt_required, jwt_or_session_required,
-    org_admin_required, role_api_required, register_audit_interceptor,
-    generate_payslip_pdf
-)
 register_audit_interceptor(app)
+
+
+# ────────────────────────────────────────────
+# REQUEST CORRELATION & SESSION INTEGRITY HOOKS
+# ────────────────────────────────────────────
+@app.before_request
+def handle_before_request():
+    """Assign unique request_id and measure latency for observability."""
+    g.request_id = request.headers.get('X-Request-ID') or str(uuid.uuid4())
+    g.start_time = time.time()
+
+    # Server-side idle session check for cookie sessions
+    if current_user and current_user.is_authenticated:
+        last_active = session.get('last_active')
+        idle_timeout_min = app.config.get('SESSION_IDLE_TIMEOUT_MINUTES', 30)
+        now_ts = time.time()
+        if last_active and (now_ts - last_active > idle_timeout_min * 60):
+            # Session expired due to inactivity
+            session.clear()
+            logout_user()
+            if request.is_json:
+                return jsonify({'error': 'Session expired due to inactivity. Please log in again.'}), 401
+            flash('Your session has expired due to inactivity. Please log in again.', 'info')
+            return redirect(url_for('login'))
+        session['last_active'] = now_ts
+
+
+@app.after_request
+def handle_after_request(response):
+    """Attach X-Request-ID and log request completion in structured JSON."""
+    response.headers['X-Request-ID'] = getattr(g, 'request_id', '')
+
+    # Security headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    if app.config.get('SESSION_COOKIE_SECURE'):
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+
+    # Compute duration for logging
+    if hasattr(g, 'start_time'):
+        g.latency_ms = round((time.time() - g.start_time) * 1000, 2)
+        g.status_code = response.status_code
+        if request.endpoint != 'static':
+            app.logger.info(f"{request.method} {request.path} -> {response.status_code} ({g.latency_ms}ms)")
+
+    return response
 
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    """Load user and enforce server-side session token validation."""
+    try:
+        user = db.session.get(User, int(user_id))
+        if not user:
+            return None
+        # Verify server-side session token to prevent replaying invalidated cookies
+        expected_token = session.get('session_token')
+        if not expected_token or not user.session_token or user.session_token != expected_token:
+            return None
+        return user
+    except Exception:
+        return None
+
+
+# ────────────────────────────────────────────
+# ERROR HANDLERS (No Stack Trace Leaks)
+# ────────────────────────────────────────────
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    if request.is_json or request.path.startswith('/api/'):
+        return jsonify({
+            'error': 'Too many requests. Please slow down and try again later.',
+            'request_id': getattr(g, 'request_id', None)
+        }), 429
+    flash('Too many attempts. Please wait a few moments and try again.', 'error')
+    return render_template('login.html'), 429
+
+
+@app.errorhandler(400)
+def bad_request_handler(e):
+    msg = getattr(e, 'description', 'Bad Request')
+    if request.is_json or request.path.startswith('/api/'):
+        return jsonify({'error': msg, 'request_id': getattr(g, 'request_id', None)}), 400
+    flash(f"Bad Request: {msg}", 'error')
+    return redirect(url_for('dashboard') if current_user.is_authenticated else url_for('home'))
+
+
+@app.errorhandler(403)
+def forbidden_handler(e):
+    msg = getattr(e, 'description', 'Forbidden')
+    if request.is_json or request.path.startswith('/api/') or '/pdf/' in request.path or '/download/' in request.path:
+        return jsonify({'error': msg, 'request_id': getattr(g, 'request_id', None)}), 403
+    flash('Access denied — unauthorized action.', 'error')
+    return make_response(redirect(url_for('dashboard') if current_user.is_authenticated else url_for('home')), 403)
+
+
+@app.errorhandler(404)
+def not_found_handler(e):
+    if request.is_json or request.path.startswith('/api/') or '/pdf/' in request.path or '/download/' in request.path:
+        return jsonify({'error': 'Resource not found', 'request_id': getattr(g, 'request_id', None)}), 404
+    flash('Resource not found.', 'error')
+    return make_response(redirect(url_for('dashboard') if current_user.is_authenticated else url_for('home')), 404)
+
+
+@app.errorhandler(500)
+@app.errorhandler(Exception)
+def unhandled_exception_handler(e):
+    req_id = getattr(g, 'request_id', 'unknown')
+    app.logger.exception(f"Unhandled exception on {request.method} {request.path}: {str(e)}")
+    db.session.rollback()
+
+    if request.is_json or request.path.startswith('/api/'):
+        return jsonify({
+            'error': 'An internal server error occurred. Please contact support.',
+            'request_id': req_id
+        }), 500
+    flash(f'An internal error occurred (Request ID: {req_id}). Please try again later.', 'error')
+    return redirect(url_for('dashboard') if current_user.is_authenticated else url_for('home'))
 
 
 # ────────────────────────────────────────────
 # RBAC MIDDLEWARE DECORATORS (Session-based)
 # ────────────────────────────────────────────
 def role_required(*allowed_roles):
-    """Decorator: restrict a route to specific roles.
-    Usage:  @role_required('hr_admin', 'finance')
-    """
+    """Decorator: restrict a route to specific roles."""
     def decorator(f):
         @wraps(f)
         def wrapped(*args, **kwargs):
+            if not current_user.is_authenticated:
+                return redirect(url_for('login'))
             if current_user.role not in allowed_roles:
                 flash('Access denied — insufficient permissions.', 'error')
                 return redirect(url_for('dashboard'))
@@ -61,12 +214,22 @@ def get_org_name():
 
 
 def get_employee_for_current_user():
-    """Helper – returns the Employee record scoped to the current user + org.
-    Enforces Row-Level Security: a user can only get *their own* Employee row."""
+    """Helper – returns the Employee record scoped strictly to the current user + org."""
+    if not current_user.is_authenticated:
+        return None
     return Employee.query.filter_by(
         user_id=current_user.id,
         org_id=current_user.org_id
     ).first()
+
+
+def paginate_query(query, max_per_page=50):
+    """Safe pagination helper bounding list limits."""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    per_page = min(max(1, per_page), max_per_page)
+    page = max(1, page)
+    return query.paginate(page=page, per_page=per_page, error_out=False)
 
 
 # ────────────────────────────────────────────
@@ -96,7 +259,7 @@ def calculate_professional_tax(gross_monthly):
 
 
 def calculate_tds_monthly(annual_taxable, regime='new'):
-    """Simplified TDS under New Regime (FY 2025-26 slabs)"""
+    """Simplified TDS under New/Old Regime (FY 2025-26 slabs)"""
     if regime == 'new':
         slabs = [
             (300000, 0),
@@ -129,25 +292,18 @@ def calculate_tds_monthly(annual_taxable, regime='new'):
 
 
 def generate_payslip_for_employee(emp, run, month, year):
-    """Generate a complete payslip for one employee.
-
-    Pay is proportional to attendance:
-      effective_pay = full_monthly_component × (days_present / total_working_days)
-    LOP days are deducted on top of absences.
-    """
-    salary = SalaryStructure.query.filter_by(emp_id=emp.emp_id, is_current=True).first()
+    """Generate a complete payslip for one employee scoped to org_id."""
+    salary = SalaryStructure.query.filter_by(emp_id=emp.emp_id, org_id=emp.org_id, is_current=True).first()
     if not salary:
         return None
 
-    attendance = AttendanceLog.query.filter_by(emp_id=emp.emp_id, month=month, year=year).first()
+    attendance = AttendanceLog.query.filter_by(emp_id=emp.emp_id, org_id=emp.org_id, month=month, year=year).first()
     working_days = attendance.total_working_days if attendance else 22
     days_present = attendance.days_present if attendance else working_days
     lop_days = attendance.lop_days if attendance else 0
 
-    # Attendance ratio — pay scales with actual days worked
     attendance_ratio = days_present / working_days if working_days > 0 else 1.0
 
-    # Full monthly components (before attendance adjustment)
     full_basic = round(salary.basic_pay / 12, 2)
     full_hra = round(salary.hra / 12, 2)
     full_da = round(salary.da / 12, 2)
@@ -155,7 +311,6 @@ def generate_payslip_for_employee(emp, run, month, year):
     full_conveyance = round(salary.conveyance / 12, 2)
     full_medical = round(salary.medical_allowance / 12, 2)
 
-    # Attendance-adjusted components
     basic = round(full_basic * attendance_ratio, 2)
     hra = round(full_hra * attendance_ratio, 2)
     da = round(full_da * attendance_ratio, 2)
@@ -165,20 +320,17 @@ def generate_payslip_for_employee(emp, run, month, year):
 
     gross = basic + hra + da + special + conveyance + medical
 
-    # LOP deduction (additional deduction on top of attendance adjustment)
     full_gross = full_basic + full_hra + full_da + full_special + full_conveyance + full_medical
     per_day = full_gross / working_days if working_days > 0 else 0
     lop_deduction = round(per_day * lop_days, 2)
 
-    gross_after_lop = gross - lop_deduction
+    gross_after_lop = max(0, gross - lop_deduction)
 
-    # Statutory deductions (based on actual pay)
     epf = calculate_epf(basic)
     esi = calculate_esi(gross_after_lop)
     pt = calculate_professional_tax(gross_after_lop)
 
-    # TDS
-    tax_decl = TaxDeclaration.query.filter_by(emp_id=emp.emp_id).first()
+    tax_decl = TaxDeclaration.query.filter_by(emp_id=emp.emp_id, org_id=emp.org_id).first()
     regime = tax_decl.regime if tax_decl else 'new'
     annual_gross = salary.ctc_annual
     annual_exemptions = 0
@@ -190,7 +342,7 @@ def generate_payslip_for_employee(emp, run, month, year):
     tds = calculate_tds_monthly(annual_taxable, regime)
 
     total_deductions = epf + esi + pt + tds + lop_deduction
-    net_pay = round(gross - total_deductions, 2)
+    net_pay = round(max(0, gross - total_deductions), 2)
 
     payslip = Payslip(
         run_id=run.run_id,
@@ -218,36 +370,62 @@ def generate_payslip_for_employee(emp, run, month, year):
 
 
 # ────────────────────────────────────────────
-# JWT AUTH API ENDPOINT
+# HEALTH CHECK ENDPOINT
+# ────────────────────────────────────────────
+@app.route('/health')
+def health_check():
+    """Observability endpoint verifying app and database responsiveness."""
+    try:
+        db.session.execute(text('SELECT 1'))
+        return jsonify({
+            'status': 'healthy',
+            'database': 'connected',
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'request_id': getattr(g, 'request_id', None)
+        }), 200
+    except Exception as e:
+        app.logger.error(f"Health check failed database connectivity: {str(e)}")
+        return jsonify({
+            'status': 'unhealthy',
+            'database': 'disconnected',
+            'error': 'Database connectivity failed',
+            'request_id': getattr(g, 'request_id', None)
+        }), 503
+
+
+@app.route('/api/v1/test/error-trigger')
+def test_error_trigger():
+    """Controlled error trigger for observability and leak verification in test environments."""
+    if app.config.get('TESTING'):
+        raise RuntimeError("Simulated controlled crash: secret_api_key_xyz9876543210")
+    abort(404)
+
+
+# ────────────────────────────────────────────
+# JWT AUTH API ENDPOINTS
 # ────────────────────────────────────────────
 @app.route('/api/v1/auth/token', methods=['POST'])
+@limiter.limit("5 per minute; 20 per hour")
 def api_auth_token():
-    """Issue a JWT access token.
+    """Issue a signed JWT access token with rate limiting and Pydantic validation."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        validated = LoginSchema(**payload)
+    except ValidationError as ve:
+        return jsonify({'error': 'Invalid request payload', 'details': ve.errors()}), 400
 
-    Request body (JSON):
-        { "username": "admin", "password": "admin123" }
-    OR for employees:
-        { "employee_id": "EMP1", "password": "rahul123" }
-
-    Response:
-        {
-            "access_token": "eyJ...",
-            "token_type": "Bearer",
-            "role": "hr_admin",
-            "org_id": 1,
-            "expires_in": 28800
-        }
-    """
-    data = request.get_json(silent=True) or {}
-    username = data.get('username') or data.get('employee_id')
-    password = data.get('password')
-
-    if not username or not password:
-        return jsonify({'error': 'username/employee_id and password are required.'}), 400
+    username = validated.username or validated.employee_id
+    if not username:
+        return jsonify({'error': 'username or employee_id is required.'}), 400
 
     user = User.query.filter_by(username=username).first()
-    if not user or not user.check_password(password):
+    if not user or not user.check_password(validated.password):
+        app.logger.warning(f"Failed API login attempt for username: {username}")
         return jsonify({'error': 'Invalid credentials.'}), 401
+
+    # Rotate / assign user session_token for server-side invalidation tracking
+    user.session_token = secrets.token_hex(32)
+    db.session.commit()
 
     token = generate_jwt(user)
     expiry_hours = app.config.get('JWT_EXPIRY_HOURS', 8)
@@ -264,24 +442,39 @@ def api_auth_token():
     })
 
 
+@app.route('/api/v1/auth/revoke', methods=['POST'])
+@jwt_or_session_required
+def api_auth_revoke():
+    """Revoke the current session and JWT token server-side immediately."""
+    user = g.current_api_user
+    if user:
+        user.session_token = None
+
+    if hasattr(g, 'jwt_claims') and g.jwt_claims:
+        jti = g.jwt_claims.get('jti')
+        exp = g.jwt_claims.get('exp')
+        if jti:
+            expires_at = datetime.utcfromtimestamp(exp) if exp else datetime.utcnow() + timedelta(hours=8)
+            revoked = RevokedToken(jti=jti, expires_at=expires_at)
+            db.session.add(revoked)
+
+    db.session.commit()
+    session.clear()
+    logout_user()
+    return jsonify({'status': 'success', 'message': 'Session and token revoked successfully.'})
+
+
 # ────────────────────────────────────────────
 # API ROUTES — Multi-Tenant & Data Isolation
 # ────────────────────────────────────────────
 @app.route('/api/v1/employee/data', methods=['GET'])
 @jwt_or_session_required
 def get_employee_data():
-    """getEmployeeData controller.
-
-    • Employee role  → strict Self-Only policy (user_id + org_id).
-    • Admin/Finance  → may optionally pass ?emp_id= but only within own org.
-
-    Supports both JWT (Authorization: Bearer <token>) and session auth.
-    """
+    """getEmployeeData controller with strict Row-Level Security."""
     user = g.current_api_user
     claims = g.jwt_claims
 
     if user.role == 'employee':
-        # Self-Only: WHERE user_id = sub AND org_id = jwt.org_id
         emp = Employee.query.filter_by(
             user_id=claims['sub'],
             org_id=claims['org_id']
@@ -289,10 +482,8 @@ def get_employee_data():
         if not emp:
             return jsonify({"error": "Employee profile not found."}), 404
     else:
-        # Admin/finance: optionally look up a specific employee in their org
         target_emp_id = request.args.get('emp_id', type=int)
         if target_emp_id:
-            # Row-Level: WHERE emp_id = ? AND org_id = jwt.org_id
             emp = Employee.query.filter_by(
                 emp_id=target_emp_id,
                 org_id=claims['org_id']
@@ -318,16 +509,7 @@ def get_employee_data():
 @app.route('/api/v1/receipt/generate', methods=['GET'])
 @jwt_or_session_required
 def api_generate_receipt():
-    """generateReceipt controller — generates a PDF receipt and returns it.
-
-    Security checks:
-      1. Employee → can only generate receipts for their own payslips.
-      2. Admin    → can generate for any employee within their own org_id.
-
-    Query params:
-      - slip_id (required): The payslip ID to generate a receipt for.
-      - format (optional): 'pdf' (default) or 'json' for metadata only.
-    """
+    """generateReceipt controller — non-blocking PDF generation with tenant scoping."""
     user = g.current_api_user
     claims = g.jwt_claims
 
@@ -337,20 +519,18 @@ def api_generate_receipt():
     if not slip_id:
         return jsonify({"error": "slip_id query parameter is required."}), 400
 
-    # Row-Level: scope payslip lookup to the user's org
+    # Scope payslip lookup to user's org
     slip = Payslip.query.filter_by(slip_id=slip_id, org_id=claims['org_id']).first()
     if not slip:
         return jsonify({"error": "Payslip not found in your organization."}), 404
 
-    emp = Employee.query.get(slip.emp_id)
+    emp = Employee.query.filter_by(emp_id=slip.emp_id, org_id=claims['org_id']).first()
+    if not emp:
+        return jsonify({"error": "Employee not found in your organization."}), 404
 
-    # ── Row-Level Security ──
-    if user.role == 'employee':
-        if emp.user_id != claims['sub']:
-            return jsonify({"error": "IDOR Prevention: Cannot access another employee's receipt."}), 403
-    else:
-        if emp.org_id != claims['org_id']:
-            return jsonify({"error": "Tenant Isolation: Employee does not belong to your organization."}), 403
+    # IDOR Prevention
+    if user.role == 'employee' and emp.user_id != claims['sub']:
+        return jsonify({"error": "IDOR Prevention: Cannot access another employee's receipt."}), 403
 
     if output_format == 'json':
         return jsonify({
@@ -368,9 +548,11 @@ def api_generate_receipt():
             }
         })
 
-    # Generate PDF
-    salary = SalaryStructure.query.filter_by(emp_id=emp.emp_id, is_current=True).first()
+    salary = SalaryStructure.query.filter_by(emp_id=emp.emp_id, org_id=claims['org_id'], is_current=True).first()
     org_name = emp.organization.name if emp.organization else 'Unknown Organization'
+
+    # Ensure no open DB transactions during ReportLab rendering
+    db.session.commit()
     pdf_bytes = generate_payslip_pdf(slip, emp, salary, org_name)
 
     months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -379,8 +561,9 @@ def api_generate_receipt():
 
     response = make_response(pdf_bytes)
     response.headers['Content-Type'] = 'application/pdf'
+    safe_emp_name = "".join(c for c in emp.full_name if c.isalnum() or c in (' ', '_')).replace(" ", "_")
     response.headers['Content-Disposition'] = (
-        f'attachment; filename="payslip_{emp.full_name.replace(" ", "_")}_{month_name}_{slip.year}.pdf"'
+        f'attachment; filename="payslip_{safe_emp_name}_{month_name}_{slip.year}.pdf"'
     )
     return response
 
@@ -388,14 +571,16 @@ def api_generate_receipt():
 @app.route('/api/v1/employees', methods=['GET'])
 @org_admin_required
 def api_list_employees():
-    """List all employees in the current user's organization.
-    Admin/Finance only — org-scoped.
-    """
+    """List all employees in the current user's organization with pagination."""
     user = g.current_api_user
-    employees = Employee.query.filter_by(org_id=user.org_id, status='active').all()
+    query = Employee.query.filter_by(org_id=user.org_id, status='active').order_by(Employee.emp_id.asc())
+    pagination = paginate_query(query, max_per_page=50)
+
     return jsonify({
         "org_id": user.org_id,
-        "count": len(employees),
+        "total": pagination.total,
+        "page": pagination.page,
+        "pages": pagination.pages,
         "employees": [{
             "emp_id": e.emp_id,
             "full_name": e.full_name,
@@ -403,416 +588,49 @@ def api_list_employees():
             "department": e.department,
             "designation": e.designation,
             "status": e.status
-        } for e in employees]
+        } for e in pagination.items]
     })
 
 
-# ────────────────────────────────────────────
-# PUBLIC ROUTES (No Login Required)
-# ────────────────────────────────────────────
-@app.route('/')
-def home():
-    return render_template('home.html')
+@app.route('/api/v1/payroll/run', methods=['POST'])
+@org_admin_required
+def api_run_payroll():
+    """API endpoint to run payroll with strict validation and idempotency."""
+    user = g.current_api_user
+    payload = request.get_json(silent=True) or {}
+    try:
+        validated = RunPayrollSchema(**payload)
+    except ValidationError as ve:
+        return jsonify({'error': 'Invalid input', 'details': ve.errors()}), 422
 
+    idemp_key = get_idempotency_key()
+    if idemp_key:
+        cached = get_idempotent_response(idemp_key, user.org_id)
+        if cached:
+            return jsonify({'message': 'Idempotent replay', 'data': cached[1]}), cached[0]
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
-    if request.method == 'POST':
-        login_mode = request.form.get('login_mode', 'admin')
-        password = request.form.get('password')
+    month = validated.month
+    year = validated.year
 
-        if login_mode == 'employee':
-            # Employee login — uses Employee ID (e.g. EMP1)
-            employee_id = request.form.get('employee_id', '').strip()
-            if not employee_id:
-                flash('Please enter your Employee ID.', 'error')
-                return render_template('login.html')
-            user = User.query.filter_by(username=employee_id, role='employee').first()
-            if user and user.check_password(password):
-                login_user(user, remember=True)
-                flash('Welcome back!', 'success')
-                next_page = request.args.get('next')
-                return redirect(next_page or url_for('dashboard'))
-            else:
-                flash('Invalid Employee ID or password.', 'error')
-        else:
-            # Admin/Finance login — uses username
-            username = request.form.get('username', '').strip()
-            if not username:
-                flash('Please enter your username.', 'error')
-                return render_template('login.html')
-            user = User.query.filter_by(username=username).first()
-            # Block employees from using admin login form
-            if user and user.role == 'employee':
-                flash('Employees must use the Employee Login tab.', 'error')
-                return render_template('login.html')
-            if user and user.check_password(password):
-                login_user(user, remember=True)
-                flash('Welcome back!', 'success')
-                next_page = request.args.get('next')
-                return redirect(next_page or url_for('dashboard'))
-            else:
-                flash('Invalid username or password.', 'error')
-    return render_template('login.html')
-
-
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
-    if request.method == 'POST':
-        username = request.form.get('username')
-        email = request.form.get('email')
-        password = request.form.get('password')
-        org_name = request.form.get('organization', 'My Organization')
-
-        if User.query.filter_by(username=username).first():
-            flash('Username already exists.', 'error')
-            return render_template('register.html')
-        if User.query.filter_by(email=email).first():
-            flash('Email already registered.', 'error')
-            return render_template('register.html')
-
-        # Find-or-create Organisation (tenant)
-        org = Organization.query.filter_by(name=org_name).first()
-        if not org:
-            org = Organization(name=org_name)
-            db.session.add(org)
-            db.session.flush()
-
-        user = User(username=username, email=email, role='hr_admin', org_id=org.org_id)
-        user.set_password(password)
-        db.session.add(user)
-        db.session.commit()
-        flash('Registration successful! Please log in.', 'success')
-        return redirect(url_for('login'))
-    return render_template('register.html')
-
-
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    flash('You have been logged out.', 'info')
-    return redirect(url_for('home'))
-
-
-# ────────────────────────────────────────────
-# PROTECTED ROUTES (Login Required)
-# ────────────────────────────────────────────
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    if current_user.role == 'employee':
-        emp = get_employee_for_current_user()
-        recent_slips = Payslip.query.filter_by(emp_id=emp.emp_id).order_by(Payslip.year.desc(), Payslip.month.desc()).limit(5).all() if emp else []
-        return render_template('dashboard.html', employee=emp, recent_slips=recent_slips, role='employee')
-
-    # Admin / Finance — scoped to own org_id
-    employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
-    recent_runs = PayrollRun.query.filter_by(org_id=current_user.org_id).order_by(PayrollRun.created_at.desc()).limit(5).all()
-    total_employees = len(employees)
-    pending_runs = PayrollRun.query.filter_by(status='pending', org_id=current_user.org_id).count()
-    finalized_runs = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).count()
-
-    # Calculate total payroll cost from latest finalized run
-    latest_run = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).order_by(PayrollRun.created_at.desc()).first()
-    total_payroll = latest_run.total_net if latest_run else 0
-
-    return render_template('dashboard.html',
-                           total_employees=total_employees,
-                           pending_runs=pending_runs,
-                           finalized_runs=finalized_runs,
-                           total_payroll=total_payroll,
-                           recent_runs=recent_runs,
-                           employees=employees, role='admin')
-
-
-@app.route('/payslips')
-@login_required
-def payslips():
-    if current_user.role == 'employee':
-        emp = get_employee_for_current_user()
-        slips = Payslip.query.filter_by(emp_id=emp.emp_id).order_by(Payslip.year.desc(), Payslip.month.desc()).all() if emp else []
-        return render_template('payslips.html', payslips=slips, employees=[emp] if emp else [])
-
-    employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
-    emp_ids = [e.emp_id for e in employees]
-    slips = Payslip.query.filter(Payslip.emp_id.in_(emp_ids)).order_by(Payslip.year.desc(), Payslip.month.desc()).all() if emp_ids else []
-    return render_template('payslips.html', payslips=slips, employees=employees)
-
-
-@app.route('/payslip/download/<int:slip_id>')
-@login_required
-def download_payslip(slip_id):
-    """Generate a printable HTML payslip for download — with full RBAC checks."""
-    slip = Payslip.query.get_or_404(slip_id)
-    emp = Employee.query.get(slip.emp_id)
-
-    # ── Row-Level Security ──
-    if current_user.role == 'employee':
-        if emp.user_id != current_user.id:
-            flash("Unauthorized access.", "error")
-            return redirect(url_for('dashboard'))
-    else:
-        if emp.org_id != current_user.org_id:
-            flash("Unauthorized access.", "error")
-            return redirect(url_for('dashboard'))
-
-    salary = SalaryStructure.query.filter_by(emp_id=emp.emp_id, is_current=True).first()
-    months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
-              'July', 'August', 'September', 'October', 'November', 'December']
-    month_name = months[slip.month] if 1 <= slip.month <= 12 else str(slip.month)
-    return render_template('payslip_download.html',
-                           slip=slip, emp=emp, salary=salary, month_name=month_name,
-                           org=get_org_name())
-
-
-@app.route('/payslip/pdf/<int:slip_id>')
-@login_required
-def download_payslip_pdf(slip_id):
-    """Generate a true PDF payslip using ReportLab — with full RBAC checks.
-
-    Row-Level Security:
-      - Employee: can only download their own payslip
-      - Admin: can download any payslip in their organization
-    """
-    slip = Payslip.query.get_or_404(slip_id)
-    emp = Employee.query.get(slip.emp_id)
-
-    # ── Row-Level Security ──
-    if current_user.role == 'employee':
-        if emp.user_id != current_user.id:
-            flash("Unauthorized access.", "error")
-            return redirect(url_for('dashboard'))
-    else:
-        if emp.org_id != current_user.org_id:
-            flash("Unauthorized access.", "error")
-            return redirect(url_for('dashboard'))
-
-    salary = SalaryStructure.query.filter_by(emp_id=emp.emp_id, is_current=True).first()
-    org_name = get_org_name()
-
-    pdf_bytes = generate_payslip_pdf(slip, emp, salary, org_name)
-
-    months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
-              'July', 'August', 'September', 'October', 'November', 'December']
-    month_name = months[slip.month] if 1 <= slip.month <= 12 else str(slip.month)
-
-    response = make_response(pdf_bytes)
-    response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = (
-        f'attachment; filename="payslip_{emp.full_name.replace(" ", "_")}_{month_name}_{slip.year}.pdf"'
-    )
-    return response
-
-
-@app.route('/attendance', methods=['GET', 'POST'])
-@login_required
-def attendance():
-    """View and manage attendance records.
-
-    GET: View attendance for a month/year.
-    POST (admin only): Add or update attendance for an employee.
-    """
-    if request.method == 'POST' and current_user.role != 'employee':
-        # Admin/Finance: add or update attendance
-        emp_id = request.form.get('emp_id', type=int)
-        att_month = request.form.get('month', type=int)
-        att_year = request.form.get('year', type=int)
-        total_working = request.form.get('total_working_days', type=int, default=22)
-        days_present = request.form.get('days_present', type=int, default=22)
-        days_absent = request.form.get('days_absent', type=int, default=0)
-        lop_days = request.form.get('lop_days', type=int, default=0)
-        overtime_hours = request.form.get('overtime_hours', type=float, default=0)
-
-        # Validate employee belongs to this org
-        emp = Employee.query.filter_by(emp_id=emp_id, org_id=current_user.org_id).first()
-        if not emp:
-            flash('Employee not found in your organization.', 'error')
-            return redirect(url_for('attendance'))
-
-        # Find or create attendance record
-        existing = AttendanceLog.query.filter_by(
-            emp_id=emp_id, month=att_month, year=att_year
-        ).first()
-
-        if existing:
-            existing.total_working_days = total_working
-            existing.days_present = days_present
-            existing.days_absent = days_absent
-            existing.lop_days = lop_days
-            existing.overtime_hours = overtime_hours
-            flash(f'Attendance updated for {emp.full_name} — {att_month}/{att_year}', 'success')
-        else:
-            new_log = AttendanceLog(
-                emp_id=emp_id,
-                org_id=current_user.org_id,
-                month=att_month,
-                year=att_year,
-                total_working_days=total_working,
-                days_present=days_present,
-                days_absent=days_absent,
-                lop_days=lop_days,
-                overtime_hours=overtime_hours
-            )
-            db.session.add(new_log)
-            flash(f'Attendance added for {emp.full_name} — {att_month}/{att_year}', 'success')
-
-        db.session.commit()
-        return redirect(url_for('attendance', month=att_month, year=att_year))
-
-    # GET request
-    month = request.args.get('month', type=int, default=datetime.now().month)
-    year = request.args.get('year', type=int, default=datetime.now().year)
-
-    if current_user.role == 'employee':
-        emp = get_employee_for_current_user()
-        logs = AttendanceLog.query.filter_by(emp_id=emp.emp_id, month=month, year=year).all() if emp else []
-        employees = [emp] if emp else []
-    else:
-        employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
-        emp_ids = [e.emp_id for e in employees]
-        logs = AttendanceLog.query.filter(AttendanceLog.emp_id.in_(emp_ids), AttendanceLog.month==month, AttendanceLog.year==year).all() if emp_ids else []
-
-    months = ['January', 'February', 'March', 'April', 'May', 'June',
-              'July', 'August', 'September', 'October', 'November', 'December']
-    return render_template('attendance.html',
-                           logs=logs, employees=employees,
-                           selected_month=month, selected_year=year,
-                           months=months)
-
-
-@app.route('/tax-deductions')
-@login_required
-def tax_deductions():
-    if current_user.role == 'employee':
-        emp = get_employee_for_current_user()
-        declarations = TaxDeclaration.query.filter_by(emp_id=emp.emp_id).all() if emp else []
-    else:
-        employees = Employee.query.filter_by(org_id=current_user.org_id).all()
-        emp_ids = [e.emp_id for e in employees]
-        declarations = TaxDeclaration.query.filter(TaxDeclaration.emp_id.in_(emp_ids)).all() if emp_ids else []
-
-    return render_template('tax_deductions.html', declarations=declarations)
-
-
-@app.route('/reimbursements')
-@login_required
-def reimbursements():
-    if current_user.role == 'employee':
-        emp = get_employee_for_current_user()
-        claims = Reimbursement.query.filter_by(emp_id=emp.emp_id).order_by(Reimbursement.submitted_at.desc()).all() if emp else []
-    else:
-        employees = Employee.query.filter_by(org_id=current_user.org_id).all()
-        emp_ids = [e.emp_id for e in employees]
-        claims = Reimbursement.query.filter(Reimbursement.emp_id.in_(emp_ids)).order_by(Reimbursement.submitted_at.desc()).all() if emp_ids else []
-
-    return render_template('reimbursements.html', claims=claims)
-
-
-@app.route('/documents')
-@login_required
-def documents():
-    return render_template('documents.html')
-
-
-@app.route('/people')
-@login_required
-@role_required('hr_admin', 'finance')
-def people():
-    employees = Employee.query.filter_by(org_id=current_user.org_id).all()
-    return render_template('people.html', employees=employees)
-
-
-@app.route('/people/add', methods=['POST'])
-@login_required
-@role_required('hr_admin')
-def add_employee():
-    emp = Employee(
-        first_name=request.form.get('first_name'),
-        last_name=request.form.get('last_name'),
-        email=request.form.get('email'),
-        phone=request.form.get('phone'),
-        pan_number=request.form.get('pan_number'),
-        aadhaar_number=request.form.get('aadhaar_number'),
-        bank_account=request.form.get('bank_account'),
-        bank_ifsc=request.form.get('bank_ifsc'),
-        bank_name=request.form.get('bank_name'),
-        department=request.form.get('department'),
-        designation=request.form.get('designation'),
-        org_id=current_user.org_id
-    )
-    db.session.add(emp)
-    db.session.flush()
-
-    # Create User account for employee — username is EMP<id>
-    emp_user = User(
-        username=f"EMP{emp.emp_id}",
-        email=emp.email,
-        role='employee',
-        org_id=current_user.org_id
-    )
-    emp_user.set_password(f"{emp.first_name.lower()}123")
-    db.session.add(emp_user)
-    db.session.flush()
-    emp.user_id = emp_user.id
-
-    ctc = float(request.form.get('ctc', 600000))
-    basic = ctc * 0.40
-    hra = basic * 0.50
-    da = ctc * 0.05
-    special = ctc - basic - hra - da - (ctc * 0.05) - (ctc * 0.03)
-    conveyance = ctc * 0.05
-    medical = ctc * 0.03
-
-    salary = SalaryStructure(
-        emp_id=emp.emp_id,
-        org_id=current_user.org_id,
-        ctc_annual=ctc,
-        basic_pay=basic,
-        hra=hra,
-        da=da,
-        special_allowance=max(special, 0),
-        conveyance=conveyance,
-        medical_allowance=medical
-    )
-    db.session.add(salary)
-    db.session.commit()
-    flash(f'Employee {emp.full_name} added successfully! Login: EMP{emp.emp_id} / {emp.first_name.lower()}123', 'success')
-    return redirect(url_for('people'))
-
-
-@app.route('/run-payroll', methods=['GET', 'POST'])
-@login_required
-@role_required('hr_admin', 'finance')
-def run_payroll():
-    if request.method == 'POST':
-        month = int(request.form.get('month', datetime.now().month))
-        year = int(request.form.get('year', datetime.now().year))
-
-        # Check if payroll already run — scoped to org
-        existing = PayrollRun.query.filter_by(month=month, year=year, org_id=current_user.org_id).first()
+    try:
+        # Atomic transaction
+        existing = PayrollRun.query.filter_by(month=month, year=year, org_id=user.org_id).first()
         if existing and existing.status == 'finalized':
-            flash(f'Payroll for {month}/{year} is already finalized.', 'error')
-            return redirect(url_for('run_payroll'))
+            return jsonify({'error': f'Payroll for {month}/{year} is already finalized.'}), 400
 
         run = existing or PayrollRun(
             month=month,
             year=year,
-            created_by=current_user.id,
-            org_id=current_user.org_id
+            created_by=user.id,
+            org_id=user.org_id
         )
         if not existing:
             db.session.add(run)
             db.session.flush()
 
-        # Clear old payslips for this run
-        Payslip.query.filter_by(run_id=run.run_id).delete()
+        Payslip.query.filter_by(run_id=run.run_id, org_id=user.org_id).delete()
 
-        employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
+        employees = Employee.query.filter_by(status='active', org_id=user.org_id).all()
         total_gross = 0
         total_ded = 0
         total_net = 0
@@ -833,8 +651,574 @@ def run_payroll():
         run.status = 'pending'
         db.session.commit()
 
-        flash(f'Payroll calculated for {count} employees. Total Net: ₹{run.total_net:,.2f}', 'success')
-        return redirect(url_for('run_payroll'))
+        resp_data = {
+            'run_id': run.run_id,
+            'month': month,
+            'year': year,
+            'employee_count': count,
+            'total_net': run.total_net,
+            'status': run.status
+        }
+
+        if idemp_key:
+            save_idempotent_response(
+                key=idemp_key,
+                org_id=user.org_id,
+                endpoint='/api/v1/payroll/run',
+                request_hash=compute_request_hash(payload),
+                response_code=200,
+                response_body=str(resp_data)
+            )
+
+        return jsonify({'message': 'Payroll run executed successfully', 'data': resp_data}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        app.logger.exception(f"Error in api_run_payroll: {str(e)}")
+        return jsonify({'error': 'Failed to execute payroll run'}), 500
+
+
+# ────────────────────────────────────────────
+# PUBLIC ROUTES (No Login Required)
+# ────────────────────────────────────────────
+@app.route('/')
+def home():
+    return render_template('home.html')
+
+
+@app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per minute; 20 per hour")
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        form_data = {k: v for k, v in request.form.items()}
+        try:
+            validated = LoginSchema(**form_data)
+        except ValidationError as ve:
+            flash(f"Validation error: {ve.errors()[0]['msg']}", 'error')
+            return render_template('login.html'), 400
+
+        login_mode = validated.login_mode
+        password = validated.password
+
+        if login_mode == 'employee':
+            employee_id = (validated.employee_id or '').strip()
+            if not employee_id:
+                flash('Please enter your Employee ID.', 'error')
+                return render_template('login.html'), 400
+            user = User.query.filter_by(username=employee_id, role='employee').first()
+            if user and user.check_password(password):
+                user.session_token = secrets.token_hex(32)
+                db.session.commit()
+                session['session_token'] = user.session_token
+                session['last_active'] = time.time()
+                session.permanent = True
+                login_user(user, remember=False)
+                flash('Welcome back!', 'success')
+                next_page = request.args.get('next')
+                # Prevent open redirects
+                if next_page and (next_page.startswith('/') and not next_page.startswith('//')):
+                    return redirect(next_page)
+                return redirect(url_for('dashboard'))
+            else:
+                flash('Invalid Employee ID or password.', 'error')
+        else:
+            username = (validated.username or '').strip()
+            if not username:
+                flash('Please enter your username.', 'error')
+                return render_template('login.html'), 400
+            user = User.query.filter_by(username=username).first()
+            if user and user.role == 'employee':
+                flash('Employees must use the Employee Login tab.', 'error')
+                return render_template('login.html'), 403
+            if user and user.check_password(password):
+                user.session_token = secrets.token_hex(32)
+                db.session.commit()
+                session['session_token'] = user.session_token
+                session['last_active'] = time.time()
+                session.permanent = True
+                login_user(user, remember=False)
+                flash('Welcome back!', 'success')
+                next_page = request.args.get('next')
+                if next_page and (next_page.startswith('/') and not next_page.startswith('//')):
+                    return redirect(next_page)
+                return redirect(url_for('dashboard'))
+            else:
+                flash('Invalid username or password.', 'error')
+
+    return render_template('login.html')
+
+
+@app.route('/register', methods=['GET', 'POST'])
+@limiter.limit("5 per minute; 20 per hour")
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        form_data = {k: v for k, v in request.form.items()}
+        try:
+            validated = RegisterSchema(**form_data)
+        except ValidationError as ve:
+            flash(f"Validation error: {ve.errors()[0]['msg']}", 'error')
+            return render_template('register.html'), 400
+
+        username = validated.username
+        email = validated.email
+        password = validated.password
+        org_name = validated.organization
+
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists.', 'error')
+            return render_template('register.html'), 400
+        if User.query.filter_by(email=email).first():
+            flash('Email already registered.', 'error')
+            return render_template('register.html'), 400
+
+        try:
+            org = Organization.query.filter_by(name=org_name).first()
+            if not org:
+                org = Organization(name=org_name)
+                db.session.add(org)
+                db.session.flush()
+
+            user = User(username=username, email=email, role='hr_admin', org_id=org.org_id)
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            flash('Registration successful! Please log in.', 'success')
+            return redirect(url_for('login'))
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception(f"Registration failure: {str(e)}")
+            flash('Registration failed. Please try again.', 'error')
+            return render_template('register.html'), 500
+
+    return render_template('register.html')
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    """Invalidate session server-side so copied cookies are rejected immediately."""
+    if current_user.is_authenticated:
+        current_user.session_token = None
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+    session.clear()
+    logout_user()
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('home'))
+
+
+# ────────────────────────────────────────────
+# PROTECTED ROUTES (Login Required)
+# ────────────────────────────────────────────
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    if current_user.role == 'employee':
+        emp = get_employee_for_current_user()
+        recent_slips = Payslip.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id).order_by(
+            Payslip.year.desc(), Payslip.month.desc()
+        ).limit(5).all() if emp else []
+        return render_template('dashboard.html', employee=emp, recent_slips=recent_slips, role='employee')
+
+    employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
+    recent_runs = PayrollRun.query.filter_by(org_id=current_user.org_id).order_by(PayrollRun.created_at.desc()).limit(5).all()
+    total_employees = len(employees)
+    pending_runs = PayrollRun.query.filter_by(status='pending', org_id=current_user.org_id).count()
+    finalized_runs = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).count()
+
+    latest_run = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).order_by(PayrollRun.created_at.desc()).first()
+    total_payroll = latest_run.total_net if latest_run else 0
+
+    return render_template('dashboard.html',
+                           total_employees=total_employees,
+                           pending_runs=pending_runs,
+                           finalized_runs=finalized_runs,
+                           total_payroll=total_payroll,
+                           recent_runs=recent_runs,
+                           employees=employees, role='admin')
+
+
+@app.route('/payslips')
+@login_required
+def payslips():
+    if current_user.role == 'employee':
+        emp = get_employee_for_current_user()
+        slips = Payslip.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id).order_by(
+            Payslip.year.desc(), Payslip.month.desc()
+        ).all() if emp else []
+        return render_template('payslips.html', payslips=slips, employees=[emp] if emp else [])
+
+    employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
+    emp_ids = [e.emp_id for e in employees]
+    slips = Payslip.query.options(joinedload(Payslip.employee)).filter(
+        Payslip.org_id == current_user.org_id,
+        Payslip.emp_id.in_(emp_ids)
+    ).order_by(Payslip.year.desc(), Payslip.month.desc()).all() if emp_ids else []
+
+    return render_template('payslips.html', payslips=slips, employees=employees)
+
+
+@app.route('/payslip/download/<int:slip_id>')
+@login_required
+def download_payslip(slip_id):
+    """Generate HTML payslip with strict Row-Level Security checks."""
+    slip = Payslip.query.filter_by(slip_id=slip_id, org_id=current_user.org_id).first()
+    if not slip:
+        abort(404)
+    emp = Employee.query.filter_by(emp_id=slip.emp_id, org_id=current_user.org_id).first()
+    if not emp:
+        abort(404)
+
+    if current_user.role == 'employee' and emp.user_id != current_user.id:
+        abort(403)
+
+    salary = SalaryStructure.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id, is_current=True).first()
+    months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+              'July', 'August', 'September', 'October', 'November', 'December']
+    month_name = months[slip.month] if 1 <= slip.month <= 12 else str(slip.month)
+    return render_template('payslip_download.html',
+                           slip=slip, emp=emp, salary=salary, month_name=month_name,
+                           org=get_org_name())
+
+
+@app.route('/payslip/pdf/<int:slip_id>')
+@login_required
+def download_payslip_pdf(slip_id):
+    """Generate PDF payslip with ReportLab, without holding active database transactions."""
+    slip = Payslip.query.filter_by(slip_id=slip_id, org_id=current_user.org_id).first()
+    if not slip:
+        abort(404)
+    emp = Employee.query.filter_by(emp_id=slip.emp_id, org_id=current_user.org_id).first()
+    if not emp:
+        abort(404)
+
+    if current_user.role == 'employee' and emp.user_id != current_user.id:
+        abort(403)
+
+    salary = SalaryStructure.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id, is_current=True).first()
+    org_name = get_org_name()
+
+    # Commit/close transaction before ReportLab rendering
+    db.session.commit()
+    pdf_bytes = generate_payslip_pdf(slip, emp, salary, org_name)
+
+    months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+              'July', 'August', 'September', 'October', 'November', 'December']
+    month_name = months[slip.month] if 1 <= slip.month <= 12 else str(slip.month)
+
+    response = make_response(pdf_bytes)
+    response.headers['Content-Type'] = 'application/pdf'
+    safe_emp_name = "".join(c for c in emp.full_name if c.isalnum() or c in (' ', '_')).replace(" ", "_")
+    response.headers['Content-Disposition'] = (
+        f'attachment; filename="payslip_{safe_emp_name}_{month_name}_{slip.year}.pdf"'
+    )
+    return response
+
+
+@app.route('/attendance', methods=['GET', 'POST'])
+@login_required
+def attendance():
+    if request.method == 'POST' and current_user.role != 'employee':
+        form_data = {k: v for k, v in request.form.items()}
+        try:
+            validated = AttendanceUpdateSchema(**form_data)
+        except ValidationError as ve:
+            flash(f"Invalid attendance data: {ve.errors()[0]['msg']}", 'error')
+            return redirect(url_for('attendance'))
+
+        emp_id = validated.emp_id
+        att_month = validated.month
+        att_year = validated.year
+
+        emp = Employee.query.filter_by(emp_id=emp_id, org_id=current_user.org_id).first()
+        if not emp:
+            flash('Employee not found in your organization.', 'error')
+            return redirect(url_for('attendance'))
+
+        try:
+            existing = AttendanceLog.query.filter_by(
+                emp_id=emp_id, org_id=current_user.org_id, month=att_month, year=att_year
+            ).first()
+
+            if existing:
+                existing.total_working_days = validated.total_working_days
+                existing.days_present = validated.days_present
+                existing.days_absent = validated.days_absent
+                existing.lop_days = validated.lop_days
+                existing.overtime_hours = validated.overtime_hours
+                flash(f'Attendance updated for {emp.full_name} — {att_month}/{att_year}', 'success')
+            else:
+                new_log = AttendanceLog(
+                    emp_id=emp_id,
+                    org_id=current_user.org_id,
+                    month=att_month,
+                    year=att_year,
+                    total_working_days=validated.total_working_days,
+                    days_present=validated.days_present,
+                    days_absent=validated.days_absent,
+                    lop_days=validated.lop_days,
+                    overtime_hours=validated.overtime_hours
+                )
+                db.session.add(new_log)
+                flash(f'Attendance added for {emp.full_name} — {att_month}/{att_year}', 'success')
+
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception(f"Attendance save error: {str(e)}")
+            flash('Error saving attendance record.', 'error')
+
+        return redirect(url_for('attendance', month=att_month, year=att_year))
+
+    month = request.args.get('month', type=int, default=datetime.now().month)
+    year = request.args.get('year', type=int, default=datetime.now().year)
+
+    if current_user.role == 'employee':
+        emp = get_employee_for_current_user()
+        logs = AttendanceLog.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id, month=month, year=year).all() if emp else []
+        employees = [emp] if emp else []
+    else:
+        employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
+        emp_ids = [e.emp_id for e in employees]
+        logs = AttendanceLog.query.filter(
+            AttendanceLog.org_id == current_user.org_id,
+            AttendanceLog.emp_id.in_(emp_ids),
+            AttendanceLog.month == month,
+            AttendanceLog.year == year
+        ).all() if emp_ids else []
+
+    months = ['January', 'February', 'March', 'April', 'May', 'June',
+              'July', 'August', 'September', 'October', 'November', 'December']
+    return render_template('attendance.html',
+                           logs=logs, employees=employees,
+                           selected_month=month, selected_year=year,
+                           months=months)
+
+
+@app.route('/tax-deductions')
+@login_required
+def tax_deductions():
+    if current_user.role == 'employee':
+        emp = get_employee_for_current_user()
+        declarations = TaxDeclaration.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id).all() if emp else []
+    else:
+        declarations = TaxDeclaration.query.filter_by(org_id=current_user.org_id).all()
+
+    return render_template('tax_deductions.html', declarations=declarations)
+
+
+@app.route('/reimbursements')
+@login_required
+def reimbursements():
+    if current_user.role == 'employee':
+        emp = get_employee_for_current_user()
+        claims = Reimbursement.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id).order_by(
+            Reimbursement.submitted_at.desc()
+        ).all() if emp else []
+    else:
+        claims = Reimbursement.query.filter_by(org_id=current_user.org_id).order_by(
+            Reimbursement.submitted_at.desc()
+        ).all()
+
+    return render_template('reimbursements.html', claims=claims)
+
+
+@app.route('/documents')
+@login_required
+def documents():
+    return render_template('documents.html')
+
+
+@app.route('/people')
+@login_required
+@role_required('hr_admin', 'finance')
+def people():
+    query = Employee.query.filter_by(org_id=current_user.org_id).order_by(Employee.emp_id.asc())
+    pagination = paginate_query(query, max_per_page=50)
+    return render_template('people.html', employees=pagination.items, pagination=pagination)
+
+
+@app.route('/people/add', methods=['POST'])
+@login_required
+@role_required('hr_admin')
+def add_employee():
+    """Add employee with schema validation, atomic transaction, and idempotency."""
+    form_data = {k: v for k, v in request.form.items()}
+    try:
+        validated = EmployeeCreateSchema(**form_data)
+    except ValidationError as ve:
+        flash(f"Validation error: {ve.errors()[0]['msg']}", 'error')
+        return redirect(url_for('people')), 400
+
+    idemp_key = get_idempotency_key()
+    if idemp_key:
+        cached = get_idempotent_response(idemp_key, current_user.org_id)
+        if cached:
+            flash("Employee record already created (idempotent request).", 'info')
+            return redirect(url_for('people'))
+
+    # Atomic multi-step transaction
+    try:
+        emp = Employee(
+            first_name=validated.first_name,
+            last_name=validated.last_name,
+            email=validated.email,
+            phone=validated.phone,
+            pan_number=validated.pan_number,
+            aadhaar_number=validated.aadhaar_number,
+            bank_account=validated.bank_account,
+            bank_ifsc=validated.bank_ifsc,
+            bank_name=validated.bank_name,
+            department=validated.department,
+            designation=validated.designation,
+            org_id=current_user.org_id
+        )
+        db.session.add(emp)
+        db.session.flush()
+
+        # Employee user account with EMP<id>
+        emp_user = User(
+            username=f"EMP{emp.emp_id}",
+            email=emp.email,
+            role='employee',
+            org_id=current_user.org_id
+        )
+        emp_user.set_password(f"{emp.first_name.lower()}123")
+        db.session.add(emp_user)
+        db.session.flush()
+        emp.user_id = emp_user.id
+
+        ctc = validated.ctc
+        basic = round(ctc * 0.40, 2)
+        hra = round(basic * 0.50, 2)
+        da = round(ctc * 0.05, 2)
+        conveyance = round(ctc * 0.05, 2)
+        medical = round(ctc * 0.03, 2)
+        special = round(max(0, ctc - basic - hra - da - conveyance - medical), 2)
+
+        salary = SalaryStructure(
+            emp_id=emp.emp_id,
+            org_id=current_user.org_id,
+            ctc_annual=ctc,
+            basic_pay=basic,
+            hra=hra,
+            da=da,
+            special_allowance=special,
+            conveyance=conveyance,
+            medical_allowance=medical
+        )
+        db.session.add(salary)
+        db.session.commit()
+
+        if idemp_key:
+            save_idempotent_response(
+                key=idemp_key,
+                org_id=current_user.org_id,
+                endpoint='/people/add',
+                request_hash=compute_request_hash(form_data),
+                response_code=302,
+                response_body=f"Created EMP{emp.emp_id}"
+            )
+
+        flash(f'Employee {emp.full_name} added successfully! Login: EMP{emp.emp_id} / {emp.first_name.lower()}123', 'success')
+    except Exception as e:
+        db.session.rollback()
+        app.logger.exception(f"Failed to add employee: {str(e)}")
+        flash('An error occurred while adding the employee. Please check inputs and try again.', 'error')
+
+    return redirect(url_for('people'))
+
+
+@app.route('/run-payroll', methods=['GET', 'POST'])
+@login_required
+@role_required('hr_admin', 'finance')
+def run_payroll():
+    """Execute monthly payroll run atomically with idempotency protection."""
+    if request.method == 'POST':
+        form_data = {k: v for k, v in request.form.items()}
+        try:
+            validated = RunPayrollSchema(**form_data)
+        except ValidationError as ve:
+            flash(f"Validation error: {ve.errors()[0]['msg']}", 'error')
+            return redirect(url_for('run_payroll')), 400
+
+        idemp_key = get_idempotency_key()
+        if idemp_key:
+            cached = get_idempotent_response(idemp_key, current_user.org_id)
+            if cached:
+                flash("Payroll run already executed (idempotent request).", 'info')
+                return redirect(url_for('run_payroll'))
+
+        month = validated.month
+        year = validated.year
+
+        try:
+            existing = PayrollRun.query.filter_by(month=month, year=year, org_id=current_user.org_id).first()
+            if existing and existing.status == 'finalized':
+                flash(f'Payroll for {month}/{year} is already finalized.', 'error')
+                return redirect(url_for('run_payroll'))
+
+            run = existing or PayrollRun(
+                month=month,
+                year=year,
+                created_by=current_user.id,
+                org_id=current_user.org_id
+            )
+            if not existing:
+                db.session.add(run)
+                db.session.flush()
+
+            # Clear old payslips for this run within org
+            Payslip.query.filter_by(run_id=run.run_id, org_id=current_user.org_id).delete()
+
+            employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
+            total_gross = 0
+            total_ded = 0
+            total_net = 0
+            count = 0
+
+            for emp in employees:
+                slip = generate_payslip_for_employee(emp, run, month, year)
+                if slip:
+                    total_gross += slip.gross_pay
+                    total_ded += slip.total_deductions
+                    total_net += slip.net_pay
+                    count += 1
+
+            run.total_gross = round(total_gross, 2)
+            run.total_deductions = round(total_ded, 2)
+            run.total_net = round(total_net, 2)
+            run.employee_count = count
+            run.status = 'pending'
+            db.session.commit()
+
+            if idemp_key:
+                save_idempotent_response(
+                    key=idemp_key,
+                    org_id=current_user.org_id,
+                    endpoint='/run-payroll',
+                    request_hash=compute_request_hash(form_data),
+                    response_code=302,
+                    response_body=f"Payroll calculated for {count} employees."
+                )
+
+            flash(f'Payroll calculated for {count} employees. Total Net: ₹{run.total_net:,.2f}', 'success')
+            return redirect(url_for('run_payroll'))
+
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception(f"Error executing payroll run: {str(e)}")
+            flash('Failed to run payroll due to a database conflict or error.', 'error')
+            return redirect(url_for('run_payroll'))
 
     runs = PayrollRun.query.filter_by(org_id=current_user.org_id).order_by(PayrollRun.year.desc(), PayrollRun.month.desc()).all()
     employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
@@ -845,11 +1229,7 @@ def run_payroll():
 @login_required
 @role_required('hr_admin', 'finance')
 def approve_payroll(run_id):
-    run = PayrollRun.query.get_or_404(run_id)
-    # Org isolation — admins can only approve their own org's runs
-    if run.org_id != current_user.org_id:
-        flash('Unauthorized — this payroll run does not belong to your organization.', 'error')
-        return redirect(url_for('run_payroll'))
+    run = PayrollRun.query.filter_by(run_id=run_id, org_id=current_user.org_id).first_or_404()
     run.status = 'finalized'
     run.approver_id = current_user.id
     run.finalized_at = datetime.utcnow()
@@ -862,7 +1242,9 @@ def approve_payroll(run_id):
 @login_required
 @role_required('hr_admin', 'finance')
 def reports():
-    runs = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).order_by(PayrollRun.year.desc(), PayrollRun.month.desc()).all()
+    runs = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).order_by(
+        PayrollRun.year.desc(), PayrollRun.month.desc()
+    ).all()
     return render_template('reports.html', runs=runs)
 
 
@@ -870,12 +1252,15 @@ def reports():
 @login_required
 @role_required('hr_admin', 'finance')
 def report_payroll_summary():
-    """Detailed payroll summary report with per-employee breakdown"""
     month = request.args.get('month', type=int, default=2)
     year = request.args.get('year', type=int, default=2026)
     run = PayrollRun.query.filter_by(month=month, year=year, status='finalized', org_id=current_user.org_id).first()
-    slips = Payslip.query.filter_by(month=month, year=year, run_id=run.run_id).all() if run else []
-    runs = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).order_by(PayrollRun.year.desc(), PayrollRun.month.desc()).all()
+    slips = Payslip.query.options(joinedload(Payslip.employee)).filter_by(
+        month=month, year=year, run_id=run.run_id, org_id=current_user.org_id
+    ).all() if run else []
+    runs = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).order_by(
+        PayrollRun.year.desc(), PayrollRun.month.desc()
+    ).all()
     months_list = ['January', 'February', 'March', 'April', 'May', 'June',
                    'July', 'August', 'September', 'October', 'November', 'December']
     return render_template('report_payroll_summary.html',
@@ -888,12 +1273,11 @@ def report_payroll_summary():
 @login_required
 @role_required('hr_admin', 'finance')
 def report_statutory():
-    """EPF, ESI, PT, TDS filing data for government portals"""
     month = request.args.get('month', type=int, default=2)
     year = request.args.get('year', type=int, default=2026)
-    # Scope to org: only show payslips from runs owned by this org
-    org_run_ids = [r.run_id for r in PayrollRun.query.filter_by(org_id=current_user.org_id).all()]
-    slips = Payslip.query.filter(Payslip.run_id.in_(org_run_ids), Payslip.month==month, Payslip.year==year).all() if org_run_ids else []
+    slips = Payslip.query.options(joinedload(Payslip.employee)).filter_by(
+        org_id=current_user.org_id, month=month, year=year
+    ).all()
     months_list = ['January', 'February', 'March', 'April', 'May', 'June',
                    'July', 'August', 'September', 'October', 'November', 'December']
     return render_template('report_statutory.html',
@@ -905,21 +1289,22 @@ def report_statutory():
 @login_required
 @role_required('hr_admin', 'finance')
 def report_dept_cost():
-    """Department-wise payroll cost breakdown"""
     month = request.args.get('month', type=int, default=2)
     year = request.args.get('year', type=int, default=2026)
-    org_run_ids = [r.run_id for r in PayrollRun.query.filter_by(org_id=current_user.org_id).all()]
-    slips = Payslip.query.filter(Payslip.run_id.in_(org_run_ids), Payslip.month==month, Payslip.year==year).all() if org_run_ids else []
-    # Group by department
+    slips = Payslip.query.options(joinedload(Payslip.employee)).filter_by(
+        org_id=current_user.org_id, month=month, year=year
+    ).all()
+
     dept_data = {}
     for slip in slips:
-        dept = slip.employee.department
+        dept = slip.employee.department if slip.employee else 'General'
         if dept not in dept_data:
             dept_data[dept] = {'count': 0, 'gross': 0, 'deductions': 0, 'net': 0}
         dept_data[dept]['count'] += 1
         dept_data[dept]['gross'] += slip.gross_pay
         dept_data[dept]['deductions'] += slip.total_deductions
         dept_data[dept]['net'] += slip.net_pay
+
     months_list = ['January', 'February', 'March', 'April', 'May', 'June',
                    'July', 'August', 'September', 'October', 'November', 'December']
     return render_template('report_dept_cost.html',
@@ -932,12 +1317,11 @@ def report_dept_cost():
 @login_required
 @role_required('hr_admin', 'finance')
 def report_ytd():
-    """Year-to-date cumulative earnings per employee"""
     year = request.args.get('year', type=int, default=2026)
     employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
     ytd_data = []
     for emp in employees:
-        slips = Payslip.query.filter_by(emp_id=emp.emp_id, year=year).all()
+        slips = Payslip.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id, year=year).all()
         if slips:
             ytd_data.append({
                 'employee': emp,
@@ -957,11 +1341,11 @@ def report_ytd():
 @login_required
 @role_required('hr_admin', 'finance')
 def report_bank_transfer():
-    """NEFT/RTGS bank transfer file details"""
     month = request.args.get('month', type=int, default=2)
     year = request.args.get('year', type=int, default=2026)
-    org_run_ids = [r.run_id for r in PayrollRun.query.filter_by(org_id=current_user.org_id).all()]
-    slips = Payslip.query.filter(Payslip.run_id.in_(org_run_ids), Payslip.month==month, Payslip.year==year).all() if org_run_ids else []
+    slips = Payslip.query.options(joinedload(Payslip.employee)).filter_by(
+        org_id=current_user.org_id, month=month, year=year
+    ).all()
     months_list = ['January', 'February', 'March', 'April', 'May', 'June',
                    'July', 'August', 'September', 'October', 'November', 'December']
     return render_template('report_bank_transfer.html',
@@ -973,10 +1357,10 @@ def report_bank_transfer():
 @login_required
 @role_required('hr_admin', 'finance')
 def report_audit():
-    """Complete audit log of all payroll actions — scoped to organization"""
-    logs = AuditLog.query.filter_by(org_id=current_user.org_id).order_by(AuditLog.timestamp.desc()).limit(200).all()
+    query = AuditLog.query.filter_by(org_id=current_user.org_id).order_by(AuditLog.timestamp.desc())
+    pagination = paginate_query(query, max_per_page=100)
     runs = PayrollRun.query.filter_by(org_id=current_user.org_id).order_by(PayrollRun.created_at.desc()).all()
-    return render_template('report_audit.html', audit_logs=logs, runs=runs)
+    return render_template('report_audit.html', audit_logs=pagination.items, runs=runs, pagination=pagination)
 
 
 # ────────────────────────────────────────────
@@ -1029,50 +1413,49 @@ def choose_organization():
 
 
 # ────────────────────────────────────────────
-# SEED DATA
+# DEMO DATA SEEDING (Realistic Fake Data)
 # ────────────────────────────────────────────
 def seed_database():
-    """Create demo data for testing"""
+    """Create realistic fake demo data for testing & live preview."""
     if User.query.first():
         return
 
-    # ── Create Organization (Tenant) ──
     org = Organization(name='LEARNTODAY DIGITAL PRIVATE LIMITED')
     db.session.add(org)
     db.session.flush()
 
     # Admin user
-    admin = User(username='admin', email='admin@learntoday.com', role='hr_admin',
+    admin = User(username='admin', email='admin@learntoday.fake', role='hr_admin',
                  org_id=org.org_id)
     admin.set_password('admin123')
     db.session.add(admin)
 
     # Finance user
-    finance = User(username='finance', email='finance@learntoday.com', role='finance',
+    finance = User(username='finance', email='finance@learntoday.fake', role='finance',
                    org_id=org.org_id)
     finance.set_password('finance123')
     db.session.add(finance)
 
     db.session.flush()
 
-    # Employees
+    # Realistic demo employees with synthetic identifiers
     emp_data = [
-        ('Rahul', 'Sharma', 'rahul@learntoday.com', 'Engineering', 'Senior Developer', 1200000),
-        ('Priya', 'Patel', 'priya@learntoday.com', 'Engineering', 'Full Stack Developer', 900000),
-        ('Amit', 'Kumar', 'amit@learntoday.com', 'Design', 'UI/UX Designer', 750000),
-        ('Sneha', 'Gupta', 'sneha@learntoday.com', 'Marketing', 'Marketing Manager', 850000),
-        ('Vikram', 'Singh', 'vikram@learntoday.com', 'HR', 'HR Executive', 600000),
-        ('Neha', 'Reddy', 'neha@learntoday.com', 'Finance', 'Accountant', 700000),
-        ('Arjun', 'Nair', 'arjun@learntoday.com', 'Engineering', 'Backend Developer', 1000000),
-        ('Kavita', 'Joshi', 'kavita@learntoday.com', 'Operations', 'Operations Lead', 800000),
+        ('Rahul', 'Sharma', 'rahul@learntoday.fake', 'Engineering', 'Senior Developer', 1200000, 'ABCDE1234F', '123456789012', '123456789012', 'HDFC0001234'),
+        ('Priya', 'Patel', 'priya@learntoday.fake', 'Engineering', 'Full Stack Developer', 900000, 'BCDEF2345G', '234567890123', '234567890123', 'HDFC0001234'),
+        ('Amit', 'Kumar', 'amit@learntoday.fake', 'Design', 'UI/UX Designer', 750000, 'CDEFG3456H', '345678901234', '345678901234', 'ICIC0002345'),
+        ('Sneha', 'Gupta', 'sneha@learntoday.fake', 'Marketing', 'Marketing Manager', 850000, 'DEFGH4567I', '456789012345', '456789012345', 'SBIN0003456'),
+        ('Vikram', 'Singh', 'vikram@learntoday.fake', 'HR', 'HR Executive', 600000, 'EFGHI5678J', '567890123456', '567890123456', 'HDFC0001234'),
+        ('Neha', 'Reddy', 'neha@learntoday.fake', 'Finance', 'Accountant', 700000, 'FGHIJ6789K', '678901234567', '678901234567', 'ICIC0002345'),
+        ('Arjun', 'Nair', 'arjun@learntoday.fake', 'Engineering', 'Backend Developer', 1000000, 'GHIJK7890L', '789012345678', '789012345678', 'SBIN0003456'),
+        ('Kavita', 'Joshi', 'kavita@learntoday.fake', 'Operations', 'Operations Lead', 800000, 'HIJKL8901M', '890123456789', '890123456789', 'HDFC0001234'),
     ]
 
-    for fn, ln, email, dept, desig, ctc in emp_data:
+    for fn, ln, email, dept, desig, ctc, pan, aadhaar, acc, ifsc in emp_data:
         emp = Employee(
             first_name=fn, last_name=ln, email=email,
-            phone='9876543210', pan_number='ABCDE1234F',
-            aadhaar_number='123456789012',
-            bank_account='1234567890', bank_ifsc='HDFC0001234',
+            phone='+919876543210', pan_number=pan,
+            aadhaar_number=aadhaar,
+            bank_account=acc, bank_ifsc=ifsc,
             bank_name='HDFC Bank',
             department=dept, designation=desig,
             date_of_joining=date(2024, 1, 15),
@@ -1092,12 +1475,12 @@ def seed_database():
         db.session.flush()
         emp.user_id = emp_user.id
 
-        basic = ctc * 0.40
-        hra = basic * 0.50
-        da = ctc * 0.05
-        special = ctc * 0.22
-        conveyance = ctc * 0.05
-        medical = ctc * 0.03
+        basic = round(ctc * 0.40, 2)
+        hra = round(basic * 0.50, 2)
+        da = round(ctc * 0.05, 2)
+        conveyance = round(ctc * 0.05, 2)
+        medical = round(ctc * 0.03, 2)
+        special = round(max(0, ctc - basic - hra - da - conveyance - medical), 2)
 
         salary = SalaryStructure(
             emp_id=emp.emp_id,
@@ -1112,7 +1495,6 @@ def seed_database():
         )
         db.session.add(salary)
 
-        # Attendance for recent months
         for m in range(1, 4):
             att = AttendanceLog(
                 emp_id=emp.emp_id,
@@ -1125,7 +1507,6 @@ def seed_database():
             )
             db.session.add(att)
 
-        # Tax declaration
         tax = TaxDeclaration(
             emp_id=emp.emp_id,
             org_id=org.org_id,
@@ -1137,33 +1518,6 @@ def seed_database():
         db.session.add(tax)
 
     db.session.flush()
-
-    # Reimbursement demo data
-    all_emps = Employee.query.filter_by(org_id=org.org_id).all()
-    reimbursement_data = [
-        (all_emps[0].emp_id, 'travel', 4500, 'Client site visit — Bangalore to Chennai', date(2026, 1, 10), 'approved'),
-        (all_emps[0].emp_id, 'food', 1200, 'Team lunch — project celebration', date(2026, 2, 14), 'approved'),
-        (all_emps[1].emp_id, 'medical', 8500, 'Annual health check-up at Apollo Hospital', date(2026, 1, 22), 'approved'),
-        (all_emps[2].emp_id, 'travel', 3200, 'Design conference — Hyderabad', date(2026, 2, 5), 'pending'),
-        (all_emps[3].emp_id, 'other', 15000, 'Online certification course — Google Analytics', date(2026, 1, 18), 'approved'),
-        (all_emps[4].emp_id, 'travel', 2800, 'Campus recruitment drive — Pune', date(2026, 3, 1), 'pending'),
-        (all_emps[5].emp_id, 'food', 950, 'Working dinner — month-end closing', date(2026, 2, 28), 'approved'),
-        (all_emps[6].emp_id, 'other', 6000, 'AWS certification exam fee', date(2026, 2, 20), 'approved'),
-        (all_emps[7].emp_id, 'medical', 3500, 'Physiotherapy sessions — WFH ergonomics', date(2026, 3, 5), 'pending'),
-    ]
-    for eid, cat, amt, desc, rdate, status in reimbursement_data:
-        emp_obj = Employee.query.get(eid)
-        reimb = Reimbursement(
-            emp_id=eid,
-            org_id=org.org_id,
-            category=cat,
-            amount=amt,
-            description=desc,
-            receipt_date=rdate,
-            status=status,
-            approved_at=datetime.utcnow() if status == 'approved' else None
-        )
-        db.session.add(reimb)
 
     # Statutory rates
     rates = [
@@ -1179,7 +1533,7 @@ def seed_database():
 
     db.session.commit()
 
-    # Generate a payroll run for February
+    # Generate a demo payroll run for February 2026
     admin_user = User.query.filter_by(username='admin').first()
     run = PayrollRun(month=2, year=2026, created_by=admin_user.id, status='finalized',
                      finalized_at=datetime.utcnow(), org_id=org.org_id)
@@ -1201,16 +1555,12 @@ def seed_database():
     db.session.commit()
 
 
-# ────────────────────────────────────────────
-# APP STARTUP (works both locally and on Vercel)
-# ────────────────────────────────────────────
 _db_initialized = False
 
 
 @app.before_request
 def initialize_database():
-    """Ensure the database is created and seeded on the first request.
-    This is necessary for Vercel serverless where __main__ never runs."""
+    """Ensure database schema is created and seeded on startup."""
     global _db_initialized
     if not _db_initialized:
         db.create_all()
@@ -1219,4 +1569,4 @@ def initialize_database():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=5000)
