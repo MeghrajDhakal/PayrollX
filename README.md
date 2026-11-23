@@ -50,14 +50,25 @@ A production-ready, multi-tenant payroll management system with JWT authenticati
 ```bash
 # Clone the repository
 git clone https://github.com/MeghrajDhakal/PayrollX.git
-cd PayrollX/PayrollManagementSystem/My\ Project
+cd PayrollX/My_Project
 
-# Install dependencies
-pip install -r src/requirements.txt
+# Create virtual environment & install dependencies
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-# Run the application
+# Run database migrations
+export PYTHONPATH=src
+flask db upgrade
+
+# Run the application (development launcher)
 python launch.py
+
+# Or run with production WSGI server
+gunicorn --config gunicorn_config.py "app:app"
 ```
+
+For production deployment instructions, see [DEPLOY.md](file:///home/meghraj-dhakal/Downloads/PayrollX/DEPLOY.md).
 
 The app will start at `http://127.0.0.1:5000` and auto-open your browser.
 The database is auto-created and seeded with demo data on first run.
