@@ -80,9 +80,11 @@ class Config:
     # ── Database Configuration ──
     raw_db_url = os.environ.get('DATABASE_URL')
     if raw_db_url:
-        # Standardize modern SQLAlchemy postgres dialect
+        # Standardize modern SQLAlchemy postgres dialect to psycopg2
         if raw_db_url.startswith('postgres://'):
-            raw_db_url = raw_db_url.replace('postgres://', 'postgresql://', 1)
+            raw_db_url = raw_db_url.replace('postgres://', 'postgresql+psycopg2://', 1)
+        elif raw_db_url.startswith('postgresql://'):
+            raw_db_url = raw_db_url.replace('postgresql://', 'postgresql+psycopg2://', 1)
         SQLALCHEMY_DATABASE_URI = raw_db_url
     elif IS_VERCEL or IS_PRODUCTION:
         SQLALCHEMY_DATABASE_URI = None
