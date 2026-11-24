@@ -39,6 +39,14 @@ from schemas import (
 )
 from logging_config import configure_logging
 from idempotency import get_idempotency_key, get_idempotent_response, save_idempotent_response, compute_request_hash
+from redis_client import cache_get, cache_set, cache_delete, cache_ping
+from cache_decorators import (
+    build_employee_cache_key,
+    build_roster_cache_key,
+    build_dashboard_summary_cache_key,
+    invalidate_tenant_employee_cache,
+    invalidate_tenant_payroll_cache
+)
 
 # ── Flask Application Setup ──
 app = Flask(__name__,
@@ -376,12 +384,14 @@ def generate_payslip_for_employee(emp, run, month, year):
 # ────────────────────────────────────────────
 @app.route('/health')
 def health_check():
-    """Observability endpoint verifying app and database responsiveness."""
+    """Observability endpoint verifying app, database, and Redis responsiveness."""
     try:
         db.session.execute(text('SELECT 1'))
+        redis_status = 'connected' if cache_ping() else 'disconnected_or_disabled'
         return jsonify({
             'status': 'healthy',
             'database': 'connected',
+            'redis': redis_status,
             'timestamp': datetime.utcnow().isoformat() + 'Z',
             'request_id': getattr(g, 'request_id', None)
         }), 200
@@ -472,40 +482,68 @@ def api_auth_revoke():
 @app.route('/api/v1/employee/data', methods=['GET'])
 @jwt_or_session_required
 def get_employee_data():
-    """getEmployeeData controller with strict Row-Level Security."""
+    """getEmployeeData controller with strict Row-Level Security and Cache-Aside."""
     user = g.current_api_user
     claims = g.jwt_claims
+    org_id = claims['org_id']
 
     if user.role == 'employee':
+        user_cache_key = f"payrollx:org:{org_id}:user_emp:{claims['sub']}"
+        cached_data = cache_get(user_cache_key)
+        if cached_data:
+            return jsonify(cached_data)
+
         emp = Employee.query.filter_by(
             user_id=claims['sub'],
-            org_id=claims['org_id']
+            org_id=org_id
         ).first()
         if not emp:
             return jsonify({"error": "Employee profile not found."}), 404
+
+        data = {
+            "emp_id": emp.emp_id,
+            "full_name": emp.full_name,
+            "email": emp.email,
+            "phone": emp.phone,
+            "department": emp.department,
+            "designation": emp.designation,
+            "date_of_joining": str(emp.date_of_joining),
+            "status": emp.status,
+            "organization": emp.organization.name if emp.organization else None
+        }
+        cache_set(user_cache_key, data, ttl=600)
+        cache_set(build_employee_cache_key(org_id, emp.emp_id), data, ttl=600)
+        return jsonify(data)
     else:
         target_emp_id = request.args.get('emp_id', type=int)
         if target_emp_id:
+            emp_cache_key = build_employee_cache_key(org_id, target_emp_id)
+            cached_data = cache_get(emp_cache_key)
+            if cached_data:
+                return jsonify(cached_data)
+
             emp = Employee.query.filter_by(
                 emp_id=target_emp_id,
-                org_id=claims['org_id']
+                org_id=org_id
             ).first()
             if not emp:
                 return jsonify({"error": "Employee not found in your organization."}), 404
+
+            data = {
+                "emp_id": emp.emp_id,
+                "full_name": emp.full_name,
+                "email": emp.email,
+                "phone": emp.phone,
+                "department": emp.department,
+                "designation": emp.designation,
+                "date_of_joining": str(emp.date_of_joining),
+                "status": emp.status,
+                "organization": emp.organization.name if emp.organization else None
+            }
+            cache_set(emp_cache_key, data, ttl=600)
+            return jsonify(data)
         else:
             return jsonify({"error": "emp_id query parameter required for admin lookup."}), 400
-
-    return jsonify({
-        "emp_id": emp.emp_id,
-        "full_name": emp.full_name,
-        "email": emp.email,
-        "phone": emp.phone,
-        "department": emp.department,
-        "designation": emp.designation,
-        "date_of_joining": str(emp.date_of_joining),
-        "status": emp.status,
-        "organization": emp.organization.name if emp.organization else None
-    })
 
 
 @app.route('/api/v1/receipt/generate', methods=['GET'])
@@ -574,12 +612,20 @@ def api_generate_receipt():
 @app.route('/api/v1/employees', methods=['GET'])
 @org_admin_required
 def api_list_employees():
-    """List all employees in the current user's organization with pagination."""
+    """List all employees in the current user's organization with pagination and Cache-Aside."""
     user = g.current_api_user
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 50)
+
+    roster_cache_key = build_roster_cache_key(user.org_id, page=page, limit=per_page)
+    cached_roster = cache_get(roster_cache_key)
+    if cached_roster:
+        return jsonify(cached_roster)
+
     query = Employee.query.filter_by(org_id=user.org_id, status='active').order_by(Employee.emp_id.asc())
     pagination = paginate_query(query, max_per_page=50)
 
-    return jsonify({
+    data = {
         "org_id": user.org_id,
         "total": pagination.total,
         "page": pagination.page,
@@ -592,7 +638,9 @@ def api_list_employees():
             "designation": e.designation,
             "status": e.status
         } for e in pagination.items]
-    })
+    }
+    cache_set(roster_cache_key, data, ttl=300)
+    return jsonify(data)
 
 
 @app.route('/api/v1/payroll/run', methods=['POST'])
@@ -653,6 +701,9 @@ def api_run_payroll():
         run.employee_count = count
         run.status = 'pending'
         db.session.commit()
+
+        # Evict tenant payroll and dashboard caches
+        invalidate_tenant_payroll_cache(user.org_id)
 
         resp_data = {
             'run_id': run.run_id,
@@ -836,14 +887,30 @@ def dashboard():
         ).limit(5).all() if emp else []
         return render_template('dashboard.html', employee=emp, recent_slips=recent_slips, role='employee')
 
-    employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
-    recent_runs = PayrollRun.query.filter_by(org_id=current_user.org_id).order_by(PayrollRun.created_at.desc()).limit(5).all()
-    total_employees = len(employees)
-    pending_runs = PayrollRun.query.filter_by(status='pending', org_id=current_user.org_id).count()
-    finalized_runs = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).count()
+    org_id = current_user.org_id
+    summary_key = build_dashboard_summary_cache_key(org_id)
+    cached_summary = cache_get(summary_key)
 
-    latest_run = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).order_by(PayrollRun.created_at.desc()).first()
-    total_payroll = latest_run.total_net if latest_run else 0
+    if cached_summary:
+        total_employees = cached_summary.get('total_employees', 0)
+        pending_runs = cached_summary.get('pending_runs', 0)
+        finalized_runs = cached_summary.get('finalized_runs', 0)
+        total_payroll = cached_summary.get('total_payroll', 0)
+    else:
+        total_employees = Employee.query.filter_by(status='active', org_id=org_id).count()
+        pending_runs = PayrollRun.query.filter_by(status='pending', org_id=org_id).count()
+        finalized_runs = PayrollRun.query.filter_by(status='finalized', org_id=org_id).count()
+        latest_run = PayrollRun.query.filter_by(status='finalized', org_id=org_id).order_by(PayrollRun.created_at.desc()).first()
+        total_payroll = latest_run.total_net if latest_run else 0
+        cache_set(summary_key, {
+            'total_employees': total_employees,
+            'pending_runs': pending_runs,
+            'finalized_runs': finalized_runs,
+            'total_payroll': total_payroll
+        }, ttl=180)
+
+    employees = Employee.query.filter_by(status='active', org_id=org_id).all()
+    recent_runs = PayrollRun.query.filter_by(org_id=org_id).order_by(PayrollRun.created_at.desc()).limit(5).all()
 
     return render_template('dashboard.html',
                            total_employees=total_employees,
@@ -1127,6 +1194,9 @@ def add_employee():
         db.session.add(salary)
         db.session.commit()
 
+        # Evict cache & bump roster version
+        invalidate_tenant_employee_cache(current_user.org_id, emp.emp_id)
+
         if idemp_key:
             save_idempotent_response(
                 key=idemp_key,
@@ -1209,6 +1279,9 @@ def run_payroll():
             run.status = 'pending'
             db.session.commit()
 
+            # Evict tenant payroll and dashboard caches
+            invalidate_tenant_payroll_cache(current_user.org_id)
+
             if idemp_key:
                 save_idempotent_response(
                     key=idemp_key,
@@ -1242,6 +1315,9 @@ def approve_payroll(run_id):
     run.approver_id = current_user.id
     run.finalized_at = datetime.utcnow()
     db.session.commit()
+
+    # Evict tenant payroll and dashboard caches
+    invalidate_tenant_payroll_cache(current_user.org_id)
     flash(f'Payroll for {run.month}/{run.year} finalized!', 'success')
     return redirect(url_for('run_payroll'))
 

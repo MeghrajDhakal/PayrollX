@@ -108,3 +108,10 @@ class Config:
     # ── File Upload Bounds ──
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB max payload size
     ALLOWED_UPLOAD_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
+
+    # ── Redis Caching Configuration ──
+    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    REDIS_ENABLED = os.environ.get('REDIS_ENABLED', 'true').lower() in ('true', '1', 'yes')
+    REDIS_MAX_CONNECTIONS = int(os.environ.get('REDIS_MAX_CONNECTIONS', 10 if (IS_VERCEL or IS_PRODUCTION) else 20))
+    REDIS_CONNECT_TIMEOUT = float(os.environ.get('REDIS_CONNECT_TIMEOUT', 0.2))  # 200ms
+    REDIS_SOCKET_TIMEOUT = float(os.environ.get('REDIS_SOCKET_TIMEOUT', 0.3))    # 300ms
