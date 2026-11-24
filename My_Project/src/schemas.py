@@ -35,7 +35,9 @@ class LoginSchema(StrictBaseSchema):
         return v
 
 
-class RegisterSchema(StrictBaseSchema):
+class RegisterSchema(BaseModel):
+    model_config = ConfigDict(extra='ignore', str_strip_whitespace=True)
+
     username: str = Field(..., min_length=3, max_length=80)
     email: EmailStr
     password: str = Field(..., min_length=6, max_length=128)
@@ -44,8 +46,8 @@ class RegisterSchema(StrictBaseSchema):
     @field_validator('username')
     @classmethod
     def validate_username(cls, v: str) -> str:
-        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
-            raise ValueError("Username can only contain alphanumeric characters, underscores, and hyphens.")
+        if not re.match(r'^[a-zA-Z0-9_.-]+$', v):
+            raise ValueError("Username can only contain alphanumeric characters, dots, underscores, and hyphens.")
         return v
 
 

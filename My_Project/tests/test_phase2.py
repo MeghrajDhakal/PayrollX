@@ -210,3 +210,56 @@ def test_rate_limiting_on_login(client, test_app):
     finally:
         limiter.enabled = False
         limiter.reset()
+
+
+def test_register_via_html_form(client, test_app):
+    """Verify GET /register renders 200, and POST /register redirects to /login on success."""
+    get_resp = client.get('/register')
+    assert get_resp.status_code == 200
+    assert "Create your organization admin account" in get_resp.data.decode('utf-8')
+
+    # Valid form submission
+    post_resp = client.post('/register', data={
+        'username': 'unique_admin_1',
+        'email': 'unique1@company.com',
+        'organization': 'Unique Enterprise 1',
+        'password': 'SecurePassword123'
+    }, follow_redirects=False)
+    assert post_resp.status_code == 302
+    assert '/login' in post_resp.headers['Location']
+
+    # Duplicate username check
+    dup_resp = client.post('/register', data={
+        'username': 'unique_admin_1',
+        'email': 'another@company.com',
+        'organization': 'Another Org',
+        'password': 'SecurePassword123'
+    }, follow_redirects=False)
+    assert dup_resp.status_code == 400
+    assert "Username already exists" in dup_resp.data.decode('utf-8')
+
+
+def test_register_via_json_api(client, test_app):
+    """Verify /register and /api/v1/auth/register support JSON payloads and return 201."""
+    json_payload = {
+        'username': 'api_admin.corp',
+        'email': 'api_admin@company.com',
+        'organization': 'API Test Corp',
+        'password': 'Password123!'
+    }
+    resp = client.post('/register', json=json_payload)
+    assert resp.status_code == 201
+    data = resp.get_json()
+    assert data['status'] == 'success'
+    assert data['user']['username'] == 'api_admin.corp'
+    assert data['user']['role'] == 'hr_admin'
+
+    # Test alias route /api/v1/auth/register
+    resp2 = client.post('/api/v1/auth/register', json={
+        'username': 'api_admin2',
+        'email': 'api_admin2@company.com',
+        'organization': 'API Test Corp 2',
+        'password': 'Password123!'
+    })
+    assert resp2.status_code == 201
+    assert resp2.get_json()['status'] == 'success'

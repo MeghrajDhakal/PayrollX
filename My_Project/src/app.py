@@ -810,17 +810,32 @@ def login():
 
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("5 per minute; 20 per hour")
+@app.route('/api/v1/auth/register', methods=['POST'])
+@limiter.limit("30 per minute; 100 per hour")
 def register():
-    if current_user.is_authenticated:
+    is_api_request = (
+        request.path.startswith('/api/')
+        or request.is_json
+        or request.headers.get('Accept') == 'application/json'
+    )
+
+    if current_user.is_authenticated and not is_api_request:
         return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
-        form_data = {k: v for k, v in request.form.items()}
+        # Accept JSON payload or standard multipart/x-www-form-urlencoded
+        if request.is_json:
+            raw_payload = request.get_json(silent=True) or {}
+        else:
+            raw_payload = {k: v for k, v in request.form.items()}
+
         try:
-            validated = RegisterSchema(**form_data)
+            validated = RegisterSchema(**raw_payload)
         except ValidationError as ve:
-            flash(f"Validation error: {ve.errors()[0]['msg']}", 'error')
+            error_msg = f"Validation error: {ve.errors()[0]['msg']}"
+            if is_api_request:
+                return jsonify({"error": error_msg, "details": ve.errors()}), 400
+            flash(error_msg, 'error')
             return render_template('register.html'), 400
 
         username = validated.username
@@ -829,10 +844,17 @@ def register():
         org_name = validated.organization
 
         if User.query.filter_by(username=username).first():
-            flash('Username already exists.', 'error')
+            msg = 'Username already exists.'
+            if is_api_request:
+                return jsonify({"error": msg}), 400
+            flash(msg, 'error')
             return render_template('register.html'), 400
+
         if User.query.filter_by(email=email).first():
-            flash('Email already registered.', 'error')
+            msg = 'Email already registered.'
+            if is_api_request:
+                return jsonify({"error": msg}), 400
+            flash(msg, 'error')
             return render_template('register.html'), 400
 
         try:
@@ -844,14 +866,33 @@ def register():
 
             user = User(username=username, email=email, role='hr_admin', org_id=org.org_id)
             user.set_password(password)
+            user.session_token = secrets.token_hex(32)
             db.session.add(user)
             db.session.commit()
+
+            if is_api_request:
+                return jsonify({
+                    "status": "success",
+                    "message": "Registration successful! Please log in.",
+                    "user": {
+                        "id": user.id,
+                        "username": user.username,
+                        "email": user.email,
+                        "role": user.role,
+                        "org_id": org.org_id,
+                        "organization": org.name
+                    }
+                }), 201
+
             flash('Registration successful! Please log in.', 'success')
             return redirect(url_for('login'))
         except Exception as e:
             db.session.rollback()
             app.logger.exception(f"Registration failure: {str(e)}")
-            flash('Registration failed. Please try again.', 'error')
+            msg = 'Registration failed. Please try again.'
+            if is_api_request:
+                return jsonify({"error": msg, "details": str(e)}), 500
+            flash(msg, 'error')
             return render_template('register.html'), 500
 
     return render_template('register.html')
