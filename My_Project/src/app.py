@@ -22,6 +22,7 @@ from sqlalchemy.orm import joinedload
 from pydantic import ValidationError
 
 from config import Config, BUNDLE_DIR
+from constants import MONTH_NAMES, get_month_name
 from models import (
     db, User, Employee, Organization, SalaryStructure, AttendanceLog,
     StatutoryRate, PayrollRun, Payslip, TaxDeclaration, Reimbursement,
@@ -306,10 +307,10 @@ def generate_payslip_for_employee(emp, run, month, year):
     if not salary:
         return None
 
-    attendance = AttendanceLog.query.filter_by(emp_id=emp.emp_id, org_id=emp.org_id, month=month, year=year).first()
-    working_days = attendance.total_working_days if attendance else 22
-    days_present = attendance.days_present if attendance else working_days
-    lop_days = attendance.lop_days if attendance else 0
+    attendance_log = AttendanceLog.query.filter_by(emp_id=emp.emp_id, org_id=emp.org_id, month=month, year=year).first()
+    working_days = attendance_log.total_working_days if attendance_log else 22
+    days_present = attendance_log.days_present if attendance_log else working_days
+    lop_days = attendance_log.lop_days if attendance_log else 0
 
     attendance_ratio = days_present / working_days if working_days > 0 else 1.0
 
@@ -458,8 +459,7 @@ def api_auth_token():
 def api_auth_revoke():
     """Revoke the current session and JWT token server-side immediately."""
     user = g.current_api_user
-    if user:
-        user.session_token = None
+    user.session_token = None
 
     if hasattr(g, 'jwt_claims') and g.jwt_claims:
         jti = g.jwt_claims.get('jti')
@@ -499,17 +499,7 @@ def get_employee_data():
         if not emp:
             return jsonify({"error": "Employee profile not found."}), 404
 
-        data = {
-            "emp_id": emp.emp_id,
-            "full_name": emp.full_name,
-            "email": emp.email,
-            "phone": emp.phone,
-            "department": emp.department,
-            "designation": emp.designation,
-            "date_of_joining": str(emp.date_of_joining),
-            "status": emp.status,
-            "organization": emp.organization.name if emp.organization else None
-        }
+        data = emp.to_dict(include_details=True)
         cache_set(user_cache_key, data, ttl=600)
         cache_set(build_employee_cache_key(org_id, emp.emp_id), data, ttl=600)
         return jsonify(data)
@@ -528,17 +518,7 @@ def get_employee_data():
             if not emp:
                 return jsonify({"error": "Employee not found in your organization."}), 404
 
-            data = {
-                "emp_id": emp.emp_id,
-                "full_name": emp.full_name,
-                "email": emp.email,
-                "phone": emp.phone,
-                "department": emp.department,
-                "designation": emp.designation,
-                "date_of_joining": str(emp.date_of_joining),
-                "status": emp.status,
-                "organization": emp.organization.name if emp.organization else None
-            }
+            data = emp.to_dict(include_details=True)
             cache_set(emp_cache_key, data, ttl=600)
             return jsonify(data)
         else:
@@ -594,9 +574,7 @@ def api_generate_receipt():
     db.session.commit()
     pdf_bytes = generate_payslip_pdf(slip, emp, salary, org_name)
 
-    months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
-              'July', 'August', 'September', 'October', 'November', 'December']
-    month_name = months[slip.month] if 1 <= slip.month <= 12 else str(slip.month)
+    month_name = get_month_name(slip.month)
 
     safe_emp_name = "".join(c for c in emp.full_name if c.isalnum() or c in (' ', '_')).replace(" ", "_")
     filename = f"payslip_{safe_emp_name}_{month_name}_{slip.year}.pdf"
@@ -629,14 +607,7 @@ def api_list_employees():
         "total": pagination.total,
         "page": pagination.page,
         "pages": pagination.pages,
-        "employees": [{
-            "emp_id": e.emp_id,
-            "full_name": e.full_name,
-            "email": e.email,
-            "department": e.department,
-            "designation": e.designation,
-            "status": e.status
-        } for e in pagination.items]
+        "employees": [e.to_dict() for e in pagination.items]
     }
     cache_set(roster_cache_key, data, ttl=300)
     return jsonify(data)
@@ -996,9 +967,7 @@ def download_payslip(slip_id):
         abort(403)
 
     salary = SalaryStructure.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id, is_current=True).first()
-    months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
-              'July', 'August', 'September', 'October', 'November', 'December']
-    month_name = months[slip.month] if 1 <= slip.month <= 12 else str(slip.month)
+    month_name = get_month_name(slip.month)
     return render_template('payslip_download.html',
                            slip=slip, emp=emp, salary=salary, month_name=month_name,
                            org=get_org_name())
@@ -1025,9 +994,7 @@ def download_payslip_pdf(slip_id):
     db.session.commit()
     pdf_bytes = generate_payslip_pdf(slip, emp, salary, org_name)
 
-    months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
-              'July', 'August', 'September', 'October', 'November', 'December']
-    month_name = months[slip.month] if 1 <= slip.month <= 12 else str(slip.month)
+    month_name = get_month_name(slip.month)
 
     safe_emp_name = "".join(c for c in emp.full_name if c.isalnum() or c in (' ', '_')).replace(" ", "_")
     filename = f"payslip_{safe_emp_name}_{month_name}_{slip.year}.pdf"
@@ -1111,12 +1078,10 @@ def attendance():
             AttendanceLog.year == year
         ).all() if emp_ids else []
 
-    months = ['January', 'February', 'March', 'April', 'May', 'June',
-              'July', 'August', 'September', 'October', 'November', 'December']
     return render_template('attendance.html',
                            logs=logs, employees=employees,
                            selected_month=month, selected_year=year,
-                           months=months)
+                           months=MONTH_NAMES)
 
 
 @app.route('/tax-deductions')
@@ -1385,12 +1350,10 @@ def report_payroll_summary():
     runs = PayrollRun.query.filter_by(status='finalized', org_id=current_user.org_id).order_by(
         PayrollRun.year.desc(), PayrollRun.month.desc()
     ).all()
-    months_list = ['January', 'February', 'March', 'April', 'May', 'June',
-                   'July', 'August', 'September', 'October', 'November', 'December']
     return render_template('report_payroll_summary.html',
                            run=run, slips=slips, runs=runs,
                            selected_month=month, selected_year=year,
-                           months=months_list)
+                           months=MONTH_NAMES)
 
 
 @app.route('/reports/statutory-compliance')
@@ -1402,11 +1365,9 @@ def report_statutory():
     slips = Payslip.query.options(joinedload(Payslip.employee)).filter_by(
         org_id=current_user.org_id, month=month, year=year
     ).all()
-    months_list = ['January', 'February', 'March', 'April', 'May', 'June',
-                   'July', 'August', 'September', 'October', 'November', 'December']
     return render_template('report_statutory.html',
                            slips=slips, selected_month=month, selected_year=year,
-                           months=months_list)
+                           months=MONTH_NAMES)
 
 
 @app.route('/reports/department-cost')
@@ -1429,12 +1390,10 @@ def report_dept_cost():
         dept_data[dept]['deductions'] += slip.total_deductions
         dept_data[dept]['net'] += slip.net_pay
 
-    months_list = ['January', 'February', 'March', 'April', 'May', 'June',
-                   'July', 'August', 'September', 'October', 'November', 'December']
     return render_template('report_dept_cost.html',
                            dept_data=dept_data, slips=slips,
                            selected_month=month, selected_year=year,
-                           months=months_list)
+                           months=MONTH_NAMES)
 
 
 @app.route('/reports/ytd-summary')
@@ -1470,11 +1429,9 @@ def report_bank_transfer():
     slips = Payslip.query.options(joinedload(Payslip.employee)).filter_by(
         org_id=current_user.org_id, month=month, year=year
     ).all()
-    months_list = ['January', 'February', 'March', 'April', 'May', 'June',
-                   'July', 'August', 'September', 'October', 'November', 'December']
     return render_template('report_bank_transfer.html',
                            slips=slips, selected_month=month, selected_year=year,
-                           months=months_list)
+                           months=MONTH_NAMES)
 
 
 @app.route('/reports/audit-trail')

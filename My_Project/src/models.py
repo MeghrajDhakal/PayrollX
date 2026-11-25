@@ -117,6 +117,24 @@ class Employee(db.Model):
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
 
+    def to_dict(self, include_details: bool = False) -> dict:
+        """Serialize employee master fields into a JSON-safe dictionary."""
+        data = {
+            "emp_id": self.emp_id,
+            "full_name": self.full_name,
+            "email": self.email,
+            "department": self.department,
+            "designation": self.designation,
+            "status": self.status,
+        }
+        if include_details:
+            data.update({
+                "phone": self.phone,
+                "date_of_joining": str(self.date_of_joining),
+                "organization": self.organization.name if self.organization else None,
+            })
+        return data
+
 
 class SalaryStructure(db.Model):
     """Breakdown of Basic, HRA, DA, and custom allowances"""

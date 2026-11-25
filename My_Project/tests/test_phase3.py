@@ -10,6 +10,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from app import app
+from constants import MONTH_NAMES, get_month_name
 from models import db, Organization, User, Employee
 import gunicorn_config
 
@@ -104,6 +105,43 @@ def test_gunicorn_config():
     assert gunicorn_config.timeout >= 30
     assert gunicorn_config.keepalive >= 2
     assert gunicorn_config.max_requests >= 500
+
+
+def test_month_constants_and_employee_to_dict(test_app):
+    """Verify immutable MONTH_NAMES constant and Employee.to_dict() serialization."""
+    assert isinstance(MONTH_NAMES, tuple)
+    assert len(MONTH_NAMES) == 12
+    assert get_month_name(1) == "January"
+    assert get_month_name(12) == "December"
+    assert get_month_name(13) == "13"
+
+    with test_app.app_context():
+        org = Organization(name="Serialization Org")
+        db.session.add(org)
+        db.session.commit()
+
+        emp = Employee(
+            first_name="Jane", last_name="Doe", email="jane@ser.fake",
+            phone="+919999999999", org_id=org.org_id,
+            department="Finance", designation="Analyst"
+        )
+        db.session.add(emp)
+        db.session.commit()
+
+        summary = emp.to_dict()
+        assert summary == {
+            "emp_id": emp.emp_id,
+            "full_name": "Jane Doe",
+            "email": "jane@ser.fake",
+            "department": "Finance",
+            "designation": "Analyst",
+            "status": "active",
+        }
+
+        detailed = emp.to_dict(include_details=True)
+        assert detailed["phone"] == "+919999999999"
+        assert detailed["organization"] == "Serialization Org"
+        assert "date_of_joining" in detailed
 
 
 def json_str(obj):
