@@ -3,195 +3,208 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Log In — PayrollX</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <meta name="color-scheme" content="light dark">
+    <script>
+        try {
+            const m = document.querySelector('meta[name="color-scheme"]');
+            if (m) m.content = localStorage.getItem('color-scheme') ?? 'light dark';
+        } catch {}
+    </script>
+    <title>Sign In | PayrollX</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <style>
-        /* ── Dual Login Mode Toggle ── */
-        .login-mode-toggle {
-            display: flex;
-            background: var(--bg-card, #1e2a3a);
-            border-radius: 10px;
-            padding: 4px;
-            margin-bottom: 24px;
-            border: 1px solid var(--border-color, #2d3a4a);
-        }
-        .login-mode-toggle .mode-btn {
-            flex: 1;
-            padding: 10px 16px;
-            text-align: center;
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-muted, #6b7a8d);
-            cursor: pointer;
-            border-radius: 8px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            border: none;
-            background: transparent;
-            font-family: inherit;
-            user-select: none;
-        }
-        .login-mode-toggle .mode-btn:hover {
-            color: var(--text-primary, #e8edf3);
-        }
-        .login-mode-toggle .mode-btn.active {
-            background: linear-gradient(135deg, #528ff0, #4070d0);
-            color: #ffffff;
-            box-shadow: 0 2px 8px rgba(82, 143, 240, 0.35);
-        }
-        .login-mode-toggle .mode-btn .mode-icon {
-            display: block;
-            font-size: 16px;
-            margin-bottom: 4px;
-        }
-
-        /* ── Form Panel Transition ── */
-        .form-panel {
-            display: none;
-            animation: fadeSlideIn 0.35s ease-out;
-        }
-        .form-panel.active {
-            display: block;
-        }
-        @keyframes fadeSlideIn {
-            from { opacity: 0; transform: translateY(8px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-
-        /* ── Security Badge ── */
-        .security-badge {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 14px;
-            background: rgba(39, 174, 96, 0.1);
-            border: 1px solid rgba(39, 174, 96, 0.25);
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 11px;
-            color: #27ae60;
-            font-weight: 500;
-        }
-        .security-badge i {
-            font-size: 14px;
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <div class="auth-container">
-        <div class="auth-card">
-            <div class="auth-logo">
-                <h1><span>Payroll</span>X</h1>
-                <p>Sign in to your payroll account</p>
-            </div>
-
-            {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-            <div class="flash-messages" style="margin-bottom: 20px;">
-                {% for category, message in messages %}
-                <div class="flash-msg {{ category }}">
-                    <i class="fas {% if category == 'success' %}fa-check-circle{% elif category == 'error' %}fa-exclamation-circle{% else %}fa-info-circle{% endif %}"></i>
-                    {{ message }}
+    <main class="auth-page">
+        <div class="auth-container">
+            <div class="auth-card">
+                <div class="auth-logo">
+                    <div class="auth-logo-mark" aria-hidden="true">PX</div>
+                    <h1><span>Payroll</span>X</h1>
+                    <p>Automated Payroll &amp; Statutory Compliance</p>
                 </div>
-                {% endfor %}
-            </div>
-            {% endif %}
-            {% endwith %}
 
-            <!-- ═══ DUAL MODE TOGGLE ═══ -->
-            <div class="login-mode-toggle" id="loginModeToggle">
-                <button type="button" class="mode-btn active" data-mode="admin" id="btnAdminMode">
-                    <span class="mode-icon"><i class="fas fa-building"></i></span>
-                    Organization Admin
-                </button>
-                <button type="button" class="mode-btn" data-mode="employee" id="btnEmployeeMode">
-                    <span class="mode-icon"><i class="fas fa-id-badge"></i></span>
-                    Employee Login
-                </button>
-            </div>
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <section class="flash-messages" aria-label="Sign-in status">
+                    {% for category, message in messages %}
+                    <div class="flash-msg {{ category }}" role="alert">
+                        <div class="flash-msg-body">
+                            <i class="fas {% if category == 'error' %}fa-exclamation-circle{% elif category == 'success' %}fa-check-circle{% else %}fa-info-circle{% endif %}" aria-hidden="true"></i>
+                            <span>{{ message }}</span>
+                        </div>
+                        <button type="button" class="flash-close" data-dismiss-flash aria-label="Dismiss message">
+                            <i class="fas fa-times" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                    {% endfor %}
+                </section>
+                {% endif %}
+                {% endwith %}
 
-            <div class="security-badge">
-                <i class="fas fa-shield-alt"></i>
-                <span>Secured with JWT & Role-Based Access Control</span>
-            </div>
-
-            <!-- ═══ ADMIN LOGIN FORM ═══ -->
-            <form method="POST" action="{{ url_for('login') }}" class="form-panel active" id="adminForm">
-                <input type="hidden" name="login_mode" value="admin">
-                <div class="form-group">
-                    <label for="username"><i class="fas fa-user" style="margin-right: 6px; opacity: 0.6;"></i>Username</label>
-                    <input type="text" id="username" name="username" class="form-control" placeholder="Enter admin username" required autofocus>
+                <!-- Accessible ARIA Tabs with focusgroup progressive enhancement -->
+                <div class="tab-list" role="tablist" aria-label="Sign-in account type" focusgroup="tablist nomemory">
+                    <button
+                        type="button"
+                        role="tab"
+                        id="tab-admin"
+                        class="tab-btn"
+                        aria-selected="true"
+                        data-panel="panel-admin"
+                        data-login-mode="admin"
+                        focusgroupstart
+                    >
+                        <i class="fas fa-user-shield" aria-hidden="true"></i>
+                        <span>Admin Login</span>
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        id="tab-employee"
+                        class="tab-btn"
+                        aria-selected="false"
+                        data-panel="panel-employee"
+                        data-login-mode="employee"
+                    >
+                        <i class="fas fa-id-badge" aria-hidden="true"></i>
+                        <span>Employee Login</span>
+                    </button>
                 </div>
-                <div class="form-group">
-                    <label for="admin_password"><i class="fas fa-lock" style="margin-right: 6px; opacity: 0.6;"></i>Password</label>
-                    <input type="password" id="admin_password" name="password" class="form-control" placeholder="Enter your password" required>
-                </div>
-                <button type="submit" class="btn btn-primary" id="btnAdminSubmit">
-                    <i class="fas fa-sign-in-alt"></i> Sign In as Admin
-                </button>
-            </form>
 
-            <!-- ═══ EMPLOYEE LOGIN FORM ═══ -->
-            <form method="POST" action="{{ url_for('login') }}" class="form-panel" id="employeeForm">
-                <input type="hidden" name="login_mode" value="employee">
-                <div class="form-group">
-                    <label for="employee_id"><i class="fas fa-id-card" style="margin-right: 6px; opacity: 0.6;"></i>Employee ID</label>
-                    <input type="text" id="employee_id" name="employee_id" class="form-control" placeholder="e.g. EMP1, EMP2" required>
-                </div>
-                <div class="form-group">
-                    <label for="emp_password"><i class="fas fa-lock" style="margin-right: 6px; opacity: 0.6;"></i>Password</label>
-                    <input type="password" id="emp_password" name="password" class="form-control" placeholder="Enter your password" required>
-                </div>
-                <button type="submit" class="btn btn-primary" id="btnEmployeeSubmit">
-                    <i class="fas fa-sign-in-alt"></i> Sign In as Employee
-                </button>
-            </form>
+                <form method="POST" action="{{ url_for('login') }}" id="loginForm">
+                    <input type="hidden" name="login_mode" id="login_mode" value="admin">
 
-            <div class="auth-footer">
-                Don't have an account? <a href="{{ url_for('register') }}">Create one</a>
-            </div>
+                    <div id="panel-admin" role="tabpanel" aria-labelledby="tab-admin">
+                        <div class="form-group">
+                            <label for="username">Admin Username</label>
+                            <span id="username-hint" class="field-hint">HR Admin or Finance workspace handle (for example: <code>admin</code>)</span>
+                            <input
+                                type="text"
+                                id="username"
+                                name="username"
+                                class="form-control"
+                                autocomplete="username"
+                                autocorrect="off"
+                                autocapitalize="none"
+                                spellcheck="false"
+                                enterkeyhint="next"
+                                placeholder="admin or finance"
+                                aria-describedby="username-hint"
+                                data-error="username-error"
+                                data-required="true"
+                                required
+                                autofocus
+                            >
+                            <span id="username-error" class="field-error">
+                                <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                                <span>Please enter your admin username.</span>
+                            </span>
+                        </div>
+                    </div>
 
-            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color); text-align: center;">
-                <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Demo Credentials</p>
-                <p style="font-size: 12px; color: var(--text-secondary);">
-                    <strong>Admin:</strong> admin / admin123 &nbsp;|&nbsp;
-                    <strong>Finance:</strong> finance / finance123
-                </p>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-                    <strong>Employee:</strong> EMP1 / rahul123 &nbsp;|&nbsp;
-                    EMP2 / priya123
-                </p>
+                    <div id="panel-employee" role="tabpanel" aria-labelledby="tab-employee" hidden>
+                        <div class="form-group">
+                            <label for="employee_id">Employee ID</label>
+                            <span id="emp-id-hint" class="field-hint">Assigned self-service code (for example: <code>EMP1</code>)</span>
+                            <input
+                                type="text"
+                                id="employee_id"
+                                name="employee_id"
+                                class="form-control"
+                                autocomplete="username"
+                                autocorrect="off"
+                                autocapitalize="none"
+                                spellcheck="false"
+                                enterkeyhint="next"
+                                placeholder="e.g. EMP1"
+                                aria-describedby="emp-id-hint"
+                                data-error="emp-id-error"
+                                data-required="true"
+                                disabled
+                            >
+                            <span id="emp-id-error" class="field-error">
+                                <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                                <span>Please enter your Employee ID.</span>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <div class="password-wrap input-wrap">
+                            <input
+                                type="password"
+                                id="password"
+                                name="password"
+                                class="form-control"
+                                autocomplete="current-password"
+                                enterkeyhint="done"
+                                placeholder="Enter your password"
+                                data-error="login-password-error"
+                                required
+                            >
+                            <button
+                                type="button"
+                                class="password-toggle"
+                                data-toggle-password="password"
+                                aria-pressed="false"
+                                aria-label="Show password"
+                                aria-describedby="pw-toggle-warn"
+                            >
+                                <i class="fas fa-eye" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                        <span id="pw-toggle-warn" class="visually-hidden">Warning: activating this reveals your password characters on screen.</span>
+                        <span id="login-password-error" class="field-error">
+                            <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                            <span>Please enter your password.</span>
+                        </span>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary auth-submit" id="btnSubmit">
+                        <i class="fas fa-sign-in-alt" aria-hidden="true"></i>
+                        <span>Sign In</span>
+                    </button>
+                </form>
+
+                <!-- Interactive Demo Quick-Fill (accessible buttons, zero inline handlers) -->
+                <div class="demo-panel" aria-label="Demo quick-fill credentials">
+                    <div class="demo-panel-title">
+                        <i class="fas fa-key text-accent" aria-hidden="true"></i>
+                        <span>Quick-Fill Demo Accounts</span>
+                    </div>
+                    <div class="demo-grid">
+                        <button type="button" class="demo-fill-btn" data-demo-mode="admin" data-demo-user="admin" data-demo-pass="admin123">
+                            <strong>HR Admin</strong>
+                            <span>admin / admin123</span>
+                        </button>
+                        <button type="button" class="demo-fill-btn" data-demo-mode="admin" data-demo-user="finance" data-demo-pass="finance123">
+                            <strong>Finance</strong>
+                            <span>finance / finance123</span>
+                        </button>
+                        <button type="button" class="demo-fill-btn" data-demo-mode="employee" data-demo-user="EMP1" data-demo-pass="rahul123">
+                            <strong>Employee (Rahul)</strong>
+                            <span>EMP1 / rahul123</span>
+                        </button>
+                        <button type="button" class="demo-fill-btn" data-demo-mode="employee" data-demo-user="EMP2" data-demo-pass="priya123">
+                            <strong>Employee (Priya)</strong>
+                            <span>EMP2 / priya123</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="auth-footer">
+                    New organization? <a href="{{ url_for('register') }}">Create an account</a> &bull;
+                    <a href="{{ url_for('home') }}">Back to home</a>
+                </div>
             </div>
         </div>
-    </div>
+    </main>
 
-    <script>
-        // ── Dual Login Mode Switcher ──
-        const adminBtn = document.getElementById('btnAdminMode');
-        const employeeBtn = document.getElementById('btnEmployeeMode');
-        const adminForm = document.getElementById('adminForm');
-        const employeeForm = document.getElementById('employeeForm');
-
-        function switchMode(mode) {
-            if (mode === 'admin') {
-                adminBtn.classList.add('active');
-                employeeBtn.classList.remove('active');
-                adminForm.classList.add('active');
-                employeeForm.classList.remove('active');
-                // Focus the admin username field
-                document.getElementById('username').focus();
-            } else {
-                employeeBtn.classList.add('active');
-                adminBtn.classList.remove('active');
-                employeeForm.classList.add('active');
-                adminForm.classList.remove('active');
-                // Focus the employee ID field
-                document.getElementById('employee_id').focus();
-            }
-        }
-
-        adminBtn.addEventListener('click', () => switchMode('admin'));
-        employeeBtn.addEventListener('click', () => switchMode('employee'));
-    </script>
+    <div id="toast-region" class="toast-region" role="region" aria-label="Notifications"></div>
+    <script defer src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

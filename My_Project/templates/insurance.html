@@ -2,95 +2,122 @@
 {% block title %}Insurance{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1><i class="fas fa-shield-alt" style="color: var(--success); margin-right: 8px;"></i> Insurance</h1>
-    <p>Group health insurance and employee benefits management</p>
-</div>
-
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-label">Group Health Insurance</div>
-        <div class="stat-value" style="font-size: 20px;">Active ✓</div>
-        <div class="stat-change positive"><i class="fas fa-heart"></i> ICICI Lombard</div>
-        <div class="stat-icon green"><i class="fas fa-heartbeat"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Covered Employees</div>
-        <div class="stat-value">8</div>
-        <div class="stat-change positive"><i class="fas fa-users"></i> All active staff</div>
-        <div class="stat-icon blue"><i class="fas fa-users"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Sum Insured</div>
-        <div class="stat-value">₹5L</div>
-        <div class="stat-change positive"><i class="fas fa-shield-alt"></i> Per employee</div>
-        <div class="stat-icon orange"><i class="fas fa-rupee-sign"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Annual Premium</div>
-        <div class="stat-value">₹1.2L</div>
-        <div class="stat-change positive"><i class="fas fa-calendar"></i> FY 2025-26</div>
-        <div class="stat-icon purple"><i class="fas fa-file-invoice-dollar"></i></div>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-shield-alt text-success" aria-hidden="true"></i> Insurance &amp; Benefits</h1>
+        <p>Group health insurance coverage terms, sub-limits, and active claim tracking.</p>
     </div>
 </div>
 
-<div class="data-card" style="margin-bottom: 24px;">
+<div class="stats-grid-wrap">
+    <div class="stats-grid">
+        <article class="stat-card">
+            <div class="stat-label">Group Health Policy</div>
+            <div class="stat-value" style="font-size: 1.25rem;">Active</div>
+            <div class="stat-change positive"><i class="fas fa-heart" aria-hidden="true"></i> ICICI Lombard</div>
+            <div class="stat-icon green"><i class="fas fa-heartbeat" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Covered Staff</div>
+            <div class="stat-value">8</div>
+            <div class="stat-change positive"><i class="fas fa-users" aria-hidden="true"></i> Active roster</div>
+            <div class="stat-icon blue"><i class="fas fa-users" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Sum Insured</div>
+            <div class="stat-value">₹5,00,000</div>
+            <div class="stat-change positive"><i class="fas fa-shield-alt" aria-hidden="true"></i> Family floater</div>
+            <div class="stat-icon orange"><i class="fas fa-rupee-sign" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Annual Premium</div>
+            <div class="stat-value">₹1,20,000</div>
+            <div class="stat-change positive"><i class="fas fa-calendar" aria-hidden="true"></i> FY 2025-26</div>
+            <div class="stat-icon purple"><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i></div>
+        </article>
+    </div>
+</div>
+
+<section class="data-card">
     <div class="data-card-header">
-        <h2><i class="fas fa-heartbeat" style="color: var(--danger); margin-right: 8px;"></i> Policy Details</h2>
+        <h2><i class="fas fa-heartbeat text-danger" aria-hidden="true"></i> Policy Details</h2>
     </div>
-    <div style="padding: 24px;">
+    <div class="data-card-body">
         <div class="form-row">
-            <div class="form-group"><label>Insurer</label><input class="form-control" value="ICICI Lombard General Insurance" readonly></div>
-            <div class="form-group"><label>Policy Number</label><input class="form-control" value="GHI-2025-LTD-00456" readonly></div>
+            <div class="form-group"><label for="ins_provider">Insurer</label><input id="ins_provider" class="form-control" value="ICICI Lombard General Insurance" readonly></div>
+            <div class="form-group"><label for="ins_num">Policy Number</label><input id="ins_num" class="form-control mono" value="GHI-2025-LTD-00456" readonly></div>
         </div>
         <div class="form-row">
-            <div class="form-group"><label>Policy Type</label><input class="form-control" value="Group Health Insurance (GHI)" readonly></div>
-            <div class="form-group"><label>Coverage</label><input class="form-control" value="Employee + Spouse + 2 Children" readonly></div>
+            <div class="form-group"><label for="ins_type">Policy Type</label><input id="ins_type" class="form-control" value="Group Health Insurance (GHI)" readonly></div>
+            <div class="form-group"><label for="ins_cov">Coverage</label><input id="ins_cov" class="form-control" value="Employee + Spouse + 2 Children" readonly></div>
         </div>
-        <div class="form-row">
-            <div class="form-group"><label>Valid From</label><input class="form-control" value="01 April 2025" readonly></div>
-            <div class="form-group"><label>Valid Until</label><input class="form-control" value="31 March 2026" readonly></div>
+        <div class="form-row" style="margin-block-end: 0;">
+            <div class="form-group" style="margin-block-end: 0;"><label for="ins_from">Valid From</label><input id="ins_from" class="form-control" value="01 April 2025" readonly></div>
+            <div class="form-group" style="margin-block-end: 0;"><label for="ins_to">Valid Until</label><input id="ins_to" class="form-control" value="31 March 2026" readonly></div>
         </div>
     </div>
-</div>
+</section>
 
-<div class="data-card" style="margin-bottom: 24px;">
+<section class="data-card">
     <div class="data-card-header">
-        <h2><i class="fas fa-list" style="color: var(--primary); margin-right: 8px;"></i> Coverage Details</h2>
+        <h2 id="cov-title"><i class="fas fa-list text-accent" aria-hidden="true"></i> Coverage Schedule</h2>
     </div>
-    <table class="data-table">
-        <thead>
-            <tr><th>Coverage Item</th><th>Limit (₹)</th><th>Sub-limit</th><th>Copay</th></tr>
-        </thead>
-        <tbody>
-            <tr><td><strong>Hospitalization</strong></td><td>₹5,00,000</td><td>No sub-limit</td><td>Nil</td></tr>
-            <tr><td><strong>Pre-Hospitalization</strong></td><td>₹5,00,000</td><td>30 days before</td><td>Nil</td></tr>
-            <tr><td><strong>Post-Hospitalization</strong></td><td>₹5,00,000</td><td>60 days after</td><td>Nil</td></tr>
-            <tr><td><strong>Day Care Procedures</strong></td><td>₹5,00,000</td><td>140+ procedures</td><td>Nil</td></tr>
-            <tr><td><strong>Maternity Cover</strong></td><td>₹50,000</td><td>Normal / C-section</td><td>Nil</td></tr>
-            <tr><td><strong>New Born Baby</strong></td><td>₹50,000</td><td>Day 1 cover</td><td>Nil</td></tr>
-            <tr><td><strong>Ambulance Charges</strong></td><td>₹3,000</td><td>Per hospitalization</td><td>Nil</td></tr>
-        </tbody>
-    </table>
-</div>
+    <div tabindex="0" role="region" aria-labelledby="cov-title" class="table-wrapper">
+        <table class="data-table">
+            <caption class="visually-hidden">Group health insurance coverage limits</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Coverage Benefit</th>
+                    <th scope="col">Limit (₹)</th>
+                    <th scope="col">Sub-Limit</th>
+                    <th scope="col">Copay</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><strong>Hospitalization</strong></td><td class="num-cell">₹5,00,000</td><td>No sub-limit</td><td>Nil</td></tr>
+                <tr><td><strong>Pre-Hospitalization</strong></td><td class="num-cell">₹5,00,000</td><td>30 days prior</td><td>Nil</td></tr>
+                <tr><td><strong>Post-Hospitalization</strong></td><td class="num-cell">₹5,00,000</td><td>60 days post</td><td>Nil</td></tr>
+                <tr><td><strong>Day Care Procedures</strong></td><td class="num-cell">₹5,00,000</td><td>140+ procedures</td><td>Nil</td></tr>
+                <tr><td><strong>Maternity Cover</strong></td><td class="num-cell">₹50,000</td><td>Normal / C-section</td><td>Nil</td></tr>
+                <tr><td><strong>New Born Baby</strong></td><td class="num-cell">₹50,000</td><td>Day 1 cover</td><td>Nil</td></tr>
+                <tr><td><strong>Ambulance Charges</strong></td><td class="num-cell">₹3,000</td><td>Per claim</td><td>Nil</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
 
-<div class="data-card">
+<section class="data-card">
     <div class="data-card-header">
-        <h2><i class="fas fa-clipboard-list" style="color: var(--warning); margin-right: 8px;"></i> Recent Claims</h2>
+        <h2 id="claims-title"><i class="fas fa-clipboard-list text-warning" aria-hidden="true"></i> Recent Claims</h2>
     </div>
-    <table class="data-table">
-        <thead><tr><th>Employee</th><th>Claim Date</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead>
-        <tbody>
-            <tr>
-                <td><div class="emp-info"><div class="emp-avatar">PP</div><div><div class="emp-name">Priya Patel</div></div></div></td>
-                <td>15 Jan 2026</td><td>Hospitalization</td><td>₹32,500</td>
-                <td><span class="status-badge active">Settled</span></td>
-            </tr>
-            <tr>
-                <td><div class="emp-info"><div class="emp-avatar">VS</div><div><div class="emp-name">Vikram Singh</div></div></div></td>
-                <td>28 Feb 2026</td><td>Day Care</td><td>₹18,200</td>
-                <td><span class="status-badge pending">Processing</span></td>
-            </tr>
-        </tbody>
-    </table>
-</div>
+    <div tabindex="0" role="region" aria-labelledby="claims-title" class="table-wrapper">
+        <table class="data-table">
+            <caption class="visually-hidden">Recent employee insurance claims</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Employee</th>
+                    <th scope="col">Claim Date</th>
+                    <th scope="col">Category</th>
+                    <th scope="col">Amount</th>
+                    <th scope="col">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><div class="emp-info"><div class="emp-avatar" aria-hidden="true">PP</div><div><div class="emp-name">Priya Patel</div></div></div></td>
+                    <td class="mono">15 Jan 2026</td>
+                    <td>Hospitalization</td>
+                    <td class="num-cell">₹32,500</td>
+                    <td><span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> Settled</span></td>
+                </tr>
+                <tr>
+                    <td><div class="emp-info"><div class="emp-avatar" aria-hidden="true">VS</div><div><div class="emp-name">Vikram Singh</div></div></div></td>
+                    <td class="mono">28 Feb 2026</td>
+                    <td>Day Care</td>
+                    <td class="num-cell">₹18,200</td>
+                    <td><span class="status-badge pending"><i class="fas fa-clock" aria-hidden="true"></i> Processing</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
 {% endblock %}

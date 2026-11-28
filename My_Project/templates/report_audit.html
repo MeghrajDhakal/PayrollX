@@ -2,133 +2,109 @@
 {% block title %}Audit Trail Report{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1><i class="fas fa-history" style="color: var(--info); margin-right: 8px;"></i> Audit Trail Report</h1>
-    <p>Complete log of all payroll actions, approvals, and system changes</p>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-history text-accent" aria-hidden="true"></i> Audit Trail Report</h1>
+        <p>Chronological log of payroll execution milestones, approvals, and recorded audit events.</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('reports') }}" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left" aria-hidden="true"></i> All Reports</a>
+        {% if runs or audit_logs %}
+        <button type="button" class="btn btn-primary btn-sm" data-export-csv="auditTrailTable" data-export-filename="payrollx-audit-trail.csv">
+            <i class="fas fa-file-csv" aria-hidden="true"></i> Export CSV
+        </button>
+        {% endif %}
+    </div>
 </div>
 
-<div class="data-card" style="margin-bottom: 24px;">
+<section class="data-card">
     <div class="data-card-header">
-        <h2>Action History</h2>
-        <a href="{{ url_for('reports') }}" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Back to Reports</a>
+        <h2 id="audit-table-title">Action History</h2>
+        {% if runs or audit_logs %}
+        <div class="card-toolbar">
+            <search>
+                <div class="search-input-wrap">
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <label for="auditFilterInput" class="visually-hidden">Filter audit entries</label>
+                    <input type="search" id="auditFilterInput" class="search-input" placeholder="Search action or details..." data-table-filter="auditTrailTable">
+                </div>
+            </search>
+        </div>
+        {% endif %}
     </div>
-    {% if runs %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Timestamp</th>
-                <th>Action</th>
-                <th>Details</th>
-                <th>Performed By</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for run in runs %}
-            <!-- Payroll Created -->
-            <tr>
-                <td style="font-family: monospace; font-size: 12px;">{{ run.created_at.strftime('%d %b %Y, %H:%M') }}</td>
-                <td>
-                    <span style="display: inline-flex; align-items: center; gap: 6px;">
-                        <i class="fas fa-play-circle" style="color: var(--primary);"></i>
-                        <strong>Payroll Run Created</strong>
-                    </span>
-                </td>
-                <td>Payroll calculation initiated for <strong>{{ run.month }}/{{ run.year }}</strong> — {{ run.employee_count }} employees processed</td>
-                <td>
-                    {% if run.creator %}
-                    <div class="emp-info">
-                        <div class="emp-avatar" style="width: 28px; height: 28px; font-size: 11px;">{{ run.creator.username[0]|upper }}</div>
-                        <div><div class="emp-name">{{ run.creator.username }}</div></div>
-                    </div>
-                    {% else %}System{% endif %}
-                </td>
-                <td><span class="status-badge active">Completed</span></td>
-            </tr>
-            {% if run.status == 'finalized' %}
-            <!-- Payroll Approved -->
-            <tr>
-                <td style="font-family: monospace; font-size: 12px;">{{ run.finalized_at.strftime('%d %b %Y, %H:%M') if run.finalized_at else '—' }}</td>
-                <td>
-                    <span style="display: inline-flex; align-items: center; gap: 6px;">
-                        <i class="fas fa-check-circle" style="color: var(--success);"></i>
-                        <strong>Payroll Finalized</strong>
-                    </span>
-                </td>
-                <td>Payroll for <strong>{{ run.month }}/{{ run.year }}</strong> approved and finalized — ₹{{ "{:,.0f}".format(run.total_net) }} disbursed</td>
-                <td>
-                    {% if run.approver %}
-                    <div class="emp-info">
-                        <div class="emp-avatar" style="width: 28px; height: 28px; font-size: 11px;">{{ run.approver.username[0]|upper }}</div>
-                        <div><div class="emp-name">{{ run.approver.username }}</div></div>
-                    </div>
-                    {% else %}System{% endif %}
-                </td>
-                <td><span class="status-badge active">Finalized</span></td>
-            </tr>
-            <!-- Bank Transfer Generated -->
-            <tr>
-                <td style="font-family: monospace; font-size: 12px;">{{ run.finalized_at.strftime('%d %b %Y, %H:%M') if run.finalized_at else '—' }}</td>
-                <td>
-                    <span style="display: inline-flex; align-items: center; gap: 6px;">
-                        <i class="fas fa-university" style="color: var(--warning);"></i>
-                        <strong>Bank File Generated</strong>
-                    </span>
-                </td>
-                <td>NEFT transfer file generated for {{ run.employee_count }} beneficiaries — ₹{{ "{:,.0f}".format(run.total_net) }}</td>
-                <td>System</td>
-                <td><span class="status-badge active">Generated</span></td>
-            </tr>
-            <!-- Payslips Distributed -->
-            <tr>
-                <td style="font-family: monospace; font-size: 12px;">{{ run.finalized_at.strftime('%d %b %Y, %H:%M') if run.finalized_at else '—' }}</td>
-                <td>
-                    <span style="display: inline-flex; align-items: center; gap: 6px;">
-                        <i class="fas fa-envelope" style="color: #7b61ff;"></i>
-                        <strong>Payslips Distributed</strong>
-                    </span>
-                </td>
-                <td>{{ run.employee_count }} payslips generated and made available for download</td>
-                <td>System</td>
-                <td><span class="status-badge active">Distributed</span></td>
-            </tr>
-            {% elif run.status == 'pending' %}
-            <tr>
-                <td style="font-family: monospace; font-size: 12px;">{{ run.created_at.strftime('%d %b %Y, %H:%M') }}</td>
-                <td>
-                    <span style="display: inline-flex; align-items: center; gap: 6px;">
-                        <i class="fas fa-clock" style="color: var(--warning);"></i>
-                        <strong>Pending Approval</strong>
-                    </span>
-                </td>
-                <td>Payroll for {{ run.month }}/{{ run.year }} awaiting finance approval</td>
-                <td>—</td>
-                <td><span class="status-badge pending">Pending</span></td>
-            </tr>
-            {% endif %}
-            {% endfor %}
+    <p id="auditTrailTable-filter-status" class="visually-hidden" role="status"></p>
 
-            {% for log in audit_logs %}
-            <tr>
-                <td style="font-family: monospace; font-size: 12px;">{{ log.timestamp.strftime('%d %b %Y, %H:%M') }}</td>
-                <td>
-                    <span style="display: inline-flex; align-items: center; gap: 6px;">
-                        <i class="fas fa-info-circle" style="color: var(--text-secondary);"></i>
-                        <strong>{{ log.action }}</strong>
-                    </span>
-                </td>
-                <td>{{ log.details }}</td>
-                <td>User #{{ log.user_id }}</td>
-                <td><span class="status-badge active">Logged</span></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">
-        <div class="empty-icon"><i class="fas fa-history"></i></div>
-        <h3>No Audit Entries</h3>
-        <p>The audit trail will populate as payroll actions are performed.</p>
+    {% if runs or audit_logs %}
+    <div tabindex="0" role="region" aria-labelledby="audit-table-title" class="table-wrapper">
+        <table class="data-table" id="auditTrailTable" data-sortable>
+            <caption class="visually-hidden">Workspace payroll and security audit events</caption>
+            <thead>
+                <tr>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="auditTrailTable" command="--sort">Timestamp <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="auditTrailTable" command="--sort">Action <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col">Details</th>
+                    <th scope="col">Actor</th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="auditTrailTable" command="--sort">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in runs %}
+                <tr>
+                    <td class="mono" data-value="{{ run.created_at.isoformat() if run.created_at else '' }}">{{ run.created_at.strftime('%d %b %Y, %H:%M') if run.created_at else '—' }}</td>
+                    <td><strong>Payroll Run Created</strong></td>
+                    <td>Payroll calculation initiated for <strong>{{ run.month }}/{{ run.year }}</strong> &mdash; {{ run.employee_count }} staff</td>
+                    <td>{% if run.created_by %}User #{{ run.created_by }}{% else %}System{% endif %}</td>
+                    <td><span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> Completed</span></td>
+                </tr>
+                {% if run.status == 'finalized' %}
+                <tr>
+                    <td class="mono" data-value="{{ run.finalized_at.isoformat() if run.finalized_at else '' }}">{{ run.finalized_at.strftime('%d %b %Y, %H:%M') if run.finalized_at else '—' }}</td>
+                    <td><strong>Payroll Finalized</strong></td>
+                    <td>Approved cycle for <strong>{{ run.month }}/{{ run.year }}</strong> &mdash; ₹{{ "{:,.0f}".format(run.total_net) }} net disbursed</td>
+                    <td>{% if run.approver_id %}User #{{ run.approver_id }}{% else %}System{% endif %}</td>
+                    <td><span class="status-badge active"><i class="fas fa-check-double" aria-hidden="true"></i> Finalized</span></td>
+                </tr>
+                {% elif run.status == 'pending' %}
+                <tr>
+                    <td class="mono" data-value="{{ run.created_at.isoformat() if run.created_at else '' }}">{{ run.created_at.strftime('%d %b %Y, %H:%M') if run.created_at else '—' }}</td>
+                    <td><strong>Pending Approval</strong></td>
+                    <td>Payroll for {{ run.month }}/{{ run.year }} awaiting finance approval</td>
+                    <td>—</td>
+                    <td><span class="status-badge pending"><i class="fas fa-clock" aria-hidden="true"></i> Pending</span></td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+
+                {% for log in audit_logs %}
+                <tr>
+                    <td class="mono" data-value="{{ log.timestamp.isoformat() if log.timestamp else '' }}">{{ log.timestamp.strftime('%d %b %Y, %H:%M') if log.timestamp else '—' }}</td>
+                    <td><strong>{{ log.action }}</strong></td>
+                    <td>{{ log.details or '—' }}</td>
+                    <td>{% if log.user_id %}User #{{ log.user_id }}{% else %}System{% endif %}</td>
+                    <td><span class="status-badge info"><i class="fas fa-shield-alt" aria-hidden="true"></i> Logged</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if pagination and pagination.pages > 1 %}
+    <div class="dialog-footer" style="justify-content: space-between;">
+        <span class="text-secondary">Page {{ pagination.page }} of {{ pagination.pages }}</span>
+        <div class="page-actions">
+            {% if pagination.has_prev %}
+            <a href="{{ url_for('report_audit', page=pagination.prev_num) }}" class="btn btn-outline btn-sm">Previous</a>
+            {% endif %}
+            {% if pagination.has_next %}
+            <a href="{{ url_for('report_audit', page=pagination.next_num) }}" class="btn btn-outline btn-sm">Next</a>
+            {% endif %}
+        </div>
     </div>
     {% endif %}
-</div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fas fa-history" aria-hidden="true"></i></div>
+        <h3>No Audit Entries Yet</h3>
+        <p>Audit trail events will populate as payroll runs, approvals, and updates occur.</p>
+    </div>
+    {% endif %}
+</section>
 {% endblock %}

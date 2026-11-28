@@ -2,222 +2,278 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
     <title>Payslip — {{ emp.full_name }} — {{ month_name }} {{ slip.year }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Inter', sans-serif; background: #f5f7fa; color: #1a2332; padding: 24px; }
+        :where(html, body, main, header, section, div, dl, dt, dd, h1, h2, h3, p, button, a) {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: #f1f5f9;
+            color: #0f172a;
+            padding: 1.5rem 1rem 3rem;
+            line-height: 1.5;
+            font-variant-numeric: tabular-nums;
+        }
+        .toolbar {
+            max-inline-size: 52rem;
+            margin: 0 auto 1rem;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .action-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.6rem 1.05rem;
+            border-radius: 0.5rem;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #0f172a;
+            font: 600 0.875rem/1.2 inherit;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .action-btn.primary {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+            color: #ffffff;
+        }
         .payslip-container {
-            max-width: 800px; margin: 0 auto; background: #fff;
-            border: 1px solid #dde3ec; border-radius: 8px; overflow: hidden;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            max-inline-size: 52rem;
+            margin: 0 auto;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 0.75rem;
+            overflow: clip;
+            box-shadow: 0 4px 20px rgb(15 23 42 / 0.08);
         }
         .payslip-header {
-            background: linear-gradient(135deg, #1b2a4a, #2d4470);
-            color: white; padding: 28px 32px;
-            display: flex; justify-content: space-between; align-items: center;
+            background: linear-gradient(135deg, #0f172a, #1e3a8a);
+            color: #ffffff;
+            padding: 1.75rem 2rem;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
         }
-        .payslip-header h1 { font-size: 22px; font-weight: 700; }
-        .payslip-header h1 span { color: #528ff0; }
-        .payslip-header .period {
-            text-align: right; font-size: 13px; opacity: 0.9;
+        .payslip-header h1 {
+            margin: 0;
+            font-size: 1.375rem;
+            font-weight: 800;
         }
-        .payslip-header .period strong { display: block; font-size: 16px; margin-top: 4px; }
-        .org-name {
-            padding: 14px 32px; background: #f8fafc;
-            border-bottom: 1px solid #dde3ec; font-size: 12px;
-            font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;
-            color: #5a6b82;
+        .payslip-header h1 span { color: #60a5fa; }
+        .period { text-align: end; font-size: 0.8125rem; opacity: 0.92; }
+        .period strong { display: block; font-size: 1rem; margin-block-start: 0.2rem; }
+        .org-bar {
+            padding: 0.85rem 2rem;
+            background: #f8fafc;
+            border-block-end: 1px solid #cbd5e1;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: #475569;
         }
         .emp-details {
-            padding: 24px 32px; border-bottom: 1px solid #dde3ec;
-            display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+            padding: 1.5rem 2rem;
+            border-block-end: 1px solid #cbd5e1;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+            gap: 0.9rem 1.25rem;
+            margin: 0;
         }
-        .emp-details .detail { font-size: 13px; }
-        .emp-details .detail label {
-            font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
-            color: #8e9ab5; font-weight: 600; display: block; margin-bottom: 3px;
+        .emp-details dt {
+            font-size: 0.6875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #64748b;
+            font-weight: 700;
         }
-        .emp-details .detail span { font-weight: 500; color: #1a2332; }
-        .earnings-deductions { display: grid; grid-template-columns: 1fr 1fr; }
-        .section { padding: 24px 32px; }
-        .section:first-child { border-right: 1px solid #dde3ec; }
-        .section h3 {
-            font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px;
-            color: #528ff0; font-weight: 700; margin-bottom: 16px;
-            padding-bottom: 8px; border-bottom: 2px solid #528ff0;
+        .emp-details dd {
+            margin: 0.2rem 0 0;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #0f172a;
         }
-        .section .line-item {
-            display: flex; justify-content: space-between; padding: 7px 0;
-            font-size: 13px; border-bottom: 1px solid #f0f3f7;
+        .earnings-deductions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
         }
-        .section .line-item .label { color: #5a6b82; }
-        .section .line-item .value { font-weight: 600; color: #1a2332; }
-        .section .line-item.total {
-            border-top: 2px solid #1a2332; border-bottom: none;
-            margin-top: 12px; padding-top: 12px;
-            font-weight: 700; font-size: 14px;
+        .section { padding: 1.5rem 2rem; }
+        .section:first-child { border-inline-end: 1px solid #cbd5e1; }
+        .section h2 {
+            margin: 0 0 1rem;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: #1d4ed8;
+            font-weight: 800;
+            padding-block-end: 0.5rem;
+            border-block-end: 2px solid #1d4ed8;
         }
-        .section .line-item.total .value.green { color: #27ae60; }
-        .section .line-item.total .value.red { color: #e74c3c; }
+        .line-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.45rem 0;
+            font-size: 0.84375rem;
+            border-block-end: 1px solid #e2e8f0;
+        }
+        .line-item .label { color: #475569; }
+        .line-item .value { font-weight: 600; color: #0f172a; }
+        .line-item.total {
+            border-block-start: 2px solid #0f172a;
+            border-block-end: 0;
+            margin-block-start: 0.75rem;
+            padding-block-start: 0.75rem;
+            font-weight: 800;
+            font-size: 0.9rem;
+        }
+        .value.green { color: #047857; }
+        .value.red { color: #b91c1c; }
         .net-pay-bar {
-            background: linear-gradient(135deg, #27ae60, #2ecc71);
-            color: white; padding: 20px 32px;
-            display: flex; justify-content: space-between; align-items: center;
+            background: #047857;
+            color: #ffffff;
+            padding: 1.25rem 2rem;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.5rem;
         }
-        .net-pay-bar .label { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-        .net-pay-bar .amount { font-size: 26px; font-weight: 700; }
+        .net-pay-bar .label {
+            font-size: 0.875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .net-pay-bar .amount { font-size: 1.625rem; font-weight: 800; }
         .payslip-footer {
-            padding: 16px 32px; background: #f8fafc;
-            border-top: 1px solid #dde3ec;
-            display: flex; justify-content: space-between; align-items: center;
-            font-size: 11px; color: #8e9ab5;
+            padding: 1rem 2rem;
+            background: #f8fafc;
+            border-block-start: 1px solid #cbd5e1;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            color: #64748b;
         }
-        .print-btn {
-            display: inline-flex; align-items: center; gap: 6px;
-            padding: 10px 22px; background: #528ff0; color: white;
-            border: none; border-radius: 6px; font-family: 'Inter', sans-serif;
-            font-size: 13px; font-weight: 600; cursor: pointer;
-            margin: 20px auto; display: block;
+        @media (max-width: 600px) {
+            .section:first-child { border-inline-end: 0; border-block-end: 1px solid #cbd5e1; }
         }
-        .print-btn:hover { background: #4080e8; }
         @media print {
-            body { padding: 0; background: white; }
-            .print-btn { display: none !important; }
-            .payslip-container { box-shadow: none; border: none; }
+            body { padding: 0; background: #ffffff; }
+            .toolbar { display: none !important; }
+            .payslip-container { box-shadow: none; border: 1px solid #94a3b8; }
         }
     </style>
 </head>
 <body>
-    <div class="payslip-container">
-        <!-- Header -->
-        <div class="payslip-header">
+    <nav class="toolbar" aria-label="Payslip document actions">
+        <a href="{{ url_for('payslips') }}" class="action-btn">&larr; Back to Payslips</a>
+        <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+            <a href="{{ url_for('download_payslip_pdf', slip_id=slip.slip_id) }}" class="action-btn">Download Official PDF</a>
+            <button type="button" id="printPayslipBtn" class="action-btn primary">Print / Save PDF</button>
+        </div>
+    </nav>
+
+    <main class="payslip-container">
+        <header class="payslip-header">
             <h1><span>Payroll</span>X — Payslip</h1>
             <div class="period">
                 Pay Period
                 <strong>{{ month_name }} {{ slip.year }}</strong>
             </div>
-        </div>
+        </header>
 
-        <!-- Organization -->
-        <div class="org-name">{{ org }}</div>
+        <div class="org-bar">{{ org }}</div>
 
-        <!-- Employee Details -->
-        <div class="emp-details">
-            <div class="detail">
-                <label>Employee Name</label>
-                <span>{{ emp.full_name }}</span>
+        <dl class="emp-details">
+            <div>
+                <dt>Employee Name</dt>
+                <dd>{{ emp.full_name }}</dd>
             </div>
-            <div class="detail">
-                <label>Employee ID</label>
-                <span>EMP-{{ "%04d"|format(emp.emp_id) }}</span>
+            <div>
+                <dt>Employee ID</dt>
+                <dd>EMP-{{ "%04d"|format(emp.emp_id) }}</dd>
             </div>
-            <div class="detail">
-                <label>Department</label>
-                <span>{{ emp.department }}</span>
+            <div>
+                <dt>Department</dt>
+                <dd>{{ emp.department }}</dd>
             </div>
-            <div class="detail">
-                <label>Designation</label>
-                <span>{{ emp.designation }}</span>
+            <div>
+                <dt>Designation</dt>
+                <dd>{{ emp.designation }}</dd>
             </div>
-            <div class="detail">
-                <label>PAN Number</label>
-                <span>{{ emp.pan_number or '—' }}</span>
+            <div>
+                <dt>PAN Number</dt>
+                <dd>{{ emp.pan_number or '—' }}</dd>
             </div>
-            <div class="detail">
-                <label>Bank Account</label>
-                <span>{{ emp.bank_name or '' }} — ****{{ emp.bank_account[-4:] if emp.bank_account else '0000' }}</span>
+            <div>
+                <dt>Bank Account</dt>
+                <dd>{{ emp.bank_name or '' }} &mdash; ****{{ emp.bank_account[-4:] if emp.bank_account else '0000' }}</dd>
             </div>
-            <div class="detail">
-                <label>Date of Joining</label>
-                <span>{{ emp.date_of_joining }}</span>
+            <div>
+                <dt>Date of Joining</dt>
+                <dd>{{ emp.date_of_joining }}</dd>
             </div>
-            <div class="detail">
-                <label>Annual CTC</label>
-                <span>₹{{ "{:,.0f}".format(salary.ctc_annual) if salary else '—' }}</span>
+            <div>
+                <dt>Annual CTC</dt>
+                <dd>₹{{ "{:,.0f}".format(salary.ctc_annual) if salary else '—' }}</dd>
             </div>
-        </div>
+        </dl>
 
-        <!-- Earnings & Deductions Side by Side -->
         <div class="earnings-deductions">
-            <!-- Earnings -->
-            <div class="section">
-                <h3>Earnings</h3>
-                <div class="line-item">
-                    <span class="label">Basic Pay</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.basic_pay) }}</span>
-                </div>
-                <div class="line-item">
-                    <span class="label">House Rent Allowance</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.hra) }}</span>
-                </div>
-                <div class="line-item">
-                    <span class="label">Dearness Allowance</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.da) }}</span>
-                </div>
-                <div class="line-item">
-                    <span class="label">Special Allowance</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.special_allowance) }}</span>
-                </div>
-                <div class="line-item">
-                    <span class="label">Conveyance</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.conveyance) }}</span>
-                </div>
-                <div class="line-item">
-                    <span class="label">Medical Allowance</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.medical_allowance) }}</span>
-                </div>
+            <section class="section">
+                <h2>Earnings</h2>
+                <div class="line-item"><span class="label">Basic Pay</span><span class="value">₹{{ "{:,.2f}".format(slip.basic_pay) }}</span></div>
+                <div class="line-item"><span class="label">House Rent Allowance</span><span class="value">₹{{ "{:,.2f}".format(slip.hra) }}</span></div>
+                <div class="line-item"><span class="label">Dearness Allowance</span><span class="value">₹{{ "{:,.2f}".format(slip.da) }}</span></div>
+                <div class="line-item"><span class="label">Special Allowance</span><span class="value">₹{{ "{:,.2f}".format(slip.special_allowance) }}</span></div>
+                <div class="line-item"><span class="label">Conveyance</span><span class="value">₹{{ "{:,.2f}".format(slip.conveyance) }}</span></div>
+                <div class="line-item"><span class="label">Medical Allowance</span><span class="value">₹{{ "{:,.2f}".format(slip.medical_allowance) }}</span></div>
                 <div class="line-item total">
                     <span class="label">GROSS EARNINGS</span>
                     <span class="value green">₹{{ "{:,.2f}".format(slip.gross_pay) }}</span>
                 </div>
-            </div>
+            </section>
 
-            <!-- Deductions -->
-            <div class="section">
-                <h3>Deductions</h3>
-                <div class="line-item">
-                    <span class="label">Employee PF (EPF)</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.epf_deduction) }}</span>
-                </div>
-                <div class="line-item">
-                    <span class="label">ESI</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.esi_deduction) }}</span>
-                </div>
-                <div class="line-item">
-                    <span class="label">Professional Tax</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.professional_tax) }}</span>
-                </div>
-                <div class="line-item">
-                    <span class="label">TDS (Income Tax)</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.tds) }}</span>
-                </div>
-                <div class="line-item">
-                    <span class="label">LOP Deduction</span>
-                    <span class="value">₹{{ "{:,.2f}".format(slip.lop_deduction) }}</span>
-                </div>
+            <section class="section">
+                <h2>Deductions</h2>
+                <div class="line-item"><span class="label">Employee PF (EPF)</span><span class="value">₹{{ "{:,.2f}".format(slip.epf_deduction) }}</span></div>
+                <div class="line-item"><span class="label">ESI</span><span class="value">₹{{ "{:,.2f}".format(slip.esi_deduction) }}</span></div>
+                <div class="line-item"><span class="label">Professional Tax</span><span class="value">₹{{ "{:,.2f}".format(slip.professional_tax) }}</span></div>
+                <div class="line-item"><span class="label">TDS (Income Tax)</span><span class="value">₹{{ "{:,.2f}".format(slip.tds) }}</span></div>
+                <div class="line-item"><span class="label">LOP Deduction</span><span class="value">₹{{ "{:,.2f}".format(slip.lop_deduction) }}</span></div>
                 <div class="line-item total">
                     <span class="label">TOTAL DEDUCTIONS</span>
                     <span class="value red">₹{{ "{:,.2f}".format(slip.total_deductions) }}</span>
                 </div>
-            </div>
+            </section>
         </div>
 
-        <!-- Net Pay -->
         <div class="net-pay-bar">
             <span class="label">Net Pay (Take Home)</span>
             <span class="amount">₹{{ "{:,.2f}".format(slip.net_pay) }}</span>
         </div>
 
-        <!-- Footer -->
-        <div class="payslip-footer">
-            <span>This is a system-generated payslip and does not require a signature.</span>
+        <footer class="payslip-footer">
+            <span>System-generated payslip; signature not required.</span>
             <span>Generated by PayrollX</span>
-        </div>
-    </div>
+        </footer>
+    </main>
 
-    <button class="print-btn" onclick="window.print()">
-        🖨️ Print / Save as PDF
-    </button>
+    <script defer src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

@@ -2,115 +2,161 @@
 {% block title %}Statutory Compliance Report{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1><i class="fas fa-gavel" style="color: var(--success); margin-right: 8px;"></i> Statutory Compliance Report</h1>
-    <p>EPF, ESI, Professional Tax, and TDS filing data for government portals</p>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-gavel text-success" aria-hidden="true"></i> Statutory Compliance Report</h1>
+        <p>EPF, ESI, Professional Tax, and Income Tax TDS figures prepared for portal filings.</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('reports') }}" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left" aria-hidden="true"></i> All Reports</a>
+        {% if slips %}
+        <button type="button" class="btn btn-primary btn-sm" data-export-csv="statEpfTable" data-export-filename="statutory-epf-{{ selected_year }}-{{ selected_month }}.csv">
+            <i class="fas fa-file-csv" aria-hidden="true"></i> Export EPF CSV
+        </button>
+        {% endif %}
+    </div>
 </div>
 
-<div class="data-card" style="margin-bottom: 24px;">
+<section class="data-card">
     <div class="data-card-header">
-        <h2>Select Period</h2>
-        <a href="{{ url_for('reports') }}" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Back to Reports</a>
+        <h2>Select Reporting Period</h2>
     </div>
-    <div style="padding: 20px;">
+    <div class="data-card-body">
         <form method="GET" action="{{ url_for('report_statutory') }}">
             <div class="payroll-controls">
                 <div class="form-group">
-                    <label>Month</label>
-                    <select name="month" class="form-control" style="width: 170px;">
+                    <label for="st_month">Month</label>
+                    <select id="st_month" name="month" class="form-control select-month">
                         {% for i in range(12) %}
                         <option value="{{ i + 1 }}" {% if selected_month == i + 1 %}selected{% endif %}>{{ months[i] }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Year</label>
-                    <select name="year" class="form-control" style="width: 120px;">
+                    <label for="st_year">Year</label>
+                    <select id="st_year" name="year" class="form-control select-year">
                         <option value="2025" {% if selected_year == 2025 %}selected{% endif %}>2025</option>
                         <option value="2026" {% if selected_year == 2026 %}selected{% endif %}>2026</option>
+                        <option value="2027" {% if selected_year == 2027 %}selected{% endif %}>2027</option>
                     </select>
                 </div>
-                <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Generate</button>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-search" aria-hidden="true"></i> Generate</button>
             </div>
         </form>
     </div>
-</div>
+</section>
 
 {% if slips %}
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-label">Total EPF</div>
-        <div class="stat-value">₹{{ "{:,.0f}".format(slips|sum(attribute='epf_deduction')) }}</div>
-        <div class="stat-change positive">Employee 12% share</div>
-        <div class="stat-icon blue"><i class="fas fa-piggy-bank"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Total ESI</div>
-        <div class="stat-value">₹{{ "{:,.0f}".format(slips|sum(attribute='esi_deduction')) }}</div>
-        <div class="stat-change positive">Employee 0.75% share</div>
-        <div class="stat-icon green"><i class="fas fa-heartbeat"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Total PT</div>
-        <div class="stat-value">₹{{ "{:,.0f}".format(slips|sum(attribute='professional_tax')) }}</div>
-        <div class="stat-change positive">Professional Tax</div>
-        <div class="stat-icon orange"><i class="fas fa-landmark"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Total TDS</div>
-        <div class="stat-value">₹{{ "{:,.0f}".format(slips|sum(attribute='tds')) }}</div>
-        <div class="stat-change positive">Income Tax deducted</div>
-        <div class="stat-icon purple"><i class="fas fa-receipt"></i></div>
+<div class="stats-grid-wrap">
+    <div class="stats-grid">
+        <article class="stat-card">
+            <div class="stat-label">Total EPF</div>
+            <div class="stat-value">₹{{ "{:,.0f}".format(slips|sum(attribute='epf_deduction')) }}</div>
+            <div class="stat-change positive">Employee 12% share</div>
+            <div class="stat-icon blue"><i class="fas fa-piggy-bank" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Total ESI</div>
+            <div class="stat-value">₹{{ "{:,.0f}".format(slips|sum(attribute='esi_deduction')) }}</div>
+            <div class="stat-change positive">Employee 0.75% share</div>
+            <div class="stat-icon green"><i class="fas fa-heartbeat" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Total PT</div>
+            <div class="stat-value">₹{{ "{:,.0f}".format(slips|sum(attribute='professional_tax')) }}</div>
+            <div class="stat-change positive">Professional Tax</div>
+            <div class="stat-icon orange"><i class="fas fa-landmark" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Total TDS</div>
+            <div class="stat-value">₹{{ "{:,.0f}".format(slips|sum(attribute='tds')) }}</div>
+            <div class="stat-change positive">Income Tax deducted</div>
+            <div class="stat-icon purple"><i class="fas fa-receipt" aria-hidden="true"></i></div>
+        </article>
     </div>
 </div>
 
-<!-- EPF Details -->
-<div class="data-card" style="margin-bottom: 24px;">
+<section class="data-card">
     <div class="data-card-header">
-        <h2><i class="fas fa-piggy-bank" style="color: var(--primary); margin-right: 8px;"></i> EPF Contribution Details</h2>
+        <h2 id="epf-title"><i class="fas fa-piggy-bank text-accent" aria-hidden="true"></i> EPF Contribution Details</h2>
     </div>
-    <table class="data-table">
-        <thead><tr><th>Employee</th><th>UAN</th><th>Basic Pay</th><th>EPF (12%)</th><th>Eligible Basic</th></tr></thead>
-        <tbody>
-            {% for slip in slips %}
-            <tr>
-                <td><div class="emp-info"><div class="emp-avatar">{{ slip.employee.first_name[0] }}{{ slip.employee.last_name[0] }}</div><div><div class="emp-name">{{ slip.employee.full_name }}</div></div></div></td>
-                <td style="color: var(--text-secondary);">—</td>
-                <td>₹{{ "{:,.0f}".format(slip.basic_pay) }}</td>
-                <td><strong>₹{{ "{:,.2f}".format(slip.epf_deduction) }}</strong></td>
-                <td>₹{{ "{:,.0f}".format([slip.basic_pay, 15000]|min) }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+    <div tabindex="0" role="region" aria-labelledby="epf-title" class="table-wrapper">
+        <table class="data-table" id="statEpfTable" data-sortable>
+            <caption class="visually-hidden">Monthly EPF employee contribution details</caption>
+            <thead>
+                <tr>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="statEpfTable" command="--sort">Employee <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col">UAN</th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="statEpfTable" command="--sort">Basic Pay <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="statEpfTable" command="--sort">EPF (12%) <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="statEpfTable" command="--sort">Eligible Cap Basic <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for slip in slips %}
+                {% set cap_basic = [slip.basic_pay, 15000]|min %}
+                <tr>
+                    <td data-value="{{ slip.employee.full_name }}">
+                        <div class="emp-info">
+                            <div class="emp-avatar" aria-hidden="true">{{ slip.employee.first_name[0] }}{{ slip.employee.last_name[0] }}</div>
+                            <div><div class="emp-name">{{ slip.employee.full_name }}</div></div>
+                        </div>
+                    </td>
+                    <td class="text-muted">—</td>
+                    <td class="num-cell" data-value="{{ slip.basic_pay }}">₹{{ "{:,.0f}".format(slip.basic_pay) }}</td>
+                    <td class="num-cell" data-value="{{ slip.epf_deduction }}"><strong>₹{{ "{:,.2f}".format(slip.epf_deduction) }}</strong></td>
+                    <td class="num-cell" data-value="{{ cap_basic }}">₹{{ "{:,.0f}".format(cap_basic) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 
-<!-- TDS Details -->
-<div class="data-card">
+<section class="data-card">
     <div class="data-card-header">
-        <h2><i class="fas fa-receipt" style="color: #7b61ff; margin-right: 8px;"></i> TDS Deduction Details</h2>
+        <h2 id="tds-title"><i class="fas fa-receipt text-accent" aria-hidden="true"></i> TDS Deduction Details</h2>
+        <button type="button" class="btn btn-outline btn-sm" data-export-csv="statTdsTable" data-export-filename="statutory-tds-{{ selected_year }}-{{ selected_month }}.csv">
+            <i class="fas fa-file-csv" aria-hidden="true"></i> Export TDS CSV
+        </button>
     </div>
-    <table class="data-table">
-        <thead><tr><th>Employee</th><th>PAN</th><th>Gross Pay</th><th>Monthly TDS</th><th>Est. Annual TDS</th></tr></thead>
-        <tbody>
-            {% for slip in slips %}
-            <tr>
-                <td><div class="emp-info"><div class="emp-avatar">{{ slip.employee.first_name[0] }}{{ slip.employee.last_name[0] }}</div><div><div class="emp-name">{{ slip.employee.full_name }}</div></div></div></td>
-                <td>{{ slip.employee.pan_number or '—' }}</td>
-                <td>₹{{ "{:,.0f}".format(slip.gross_pay) }}</td>
-                <td><strong>₹{{ "{:,.2f}".format(slip.tds) }}</strong></td>
-                <td>₹{{ "{:,.0f}".format(slip.tds * 12) }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+    <div tabindex="0" role="region" aria-labelledby="tds-title" class="table-wrapper">
+        <table class="data-table" id="statTdsTable" data-sortable>
+            <caption class="visually-hidden">Monthly TDS deduction details</caption>
+            <thead>
+                <tr>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="statTdsTable" command="--sort">Employee <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="statTdsTable" command="--sort">PAN <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="statTdsTable" command="--sort">Gross Pay <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="statTdsTable" command="--sort">Monthly TDS <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="statTdsTable" command="--sort">Est. Annual TDS <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for slip in slips %}
+                <tr>
+                    <td data-value="{{ slip.employee.full_name }}">
+                        <div class="emp-info">
+                            <div class="emp-avatar" aria-hidden="true">{{ slip.employee.first_name[0] }}{{ slip.employee.last_name[0] }}</div>
+                            <div><div class="emp-name">{{ slip.employee.full_name }}</div></div>
+                        </div>
+                    </td>
+                    <td class="mono">{{ slip.employee.pan_number or '—' }}</td>
+                    <td class="num-cell" data-value="{{ slip.gross_pay }}">₹{{ "{:,.0f}".format(slip.gross_pay) }}</td>
+                    <td class="num-cell" data-value="{{ slip.tds }}"><strong>₹{{ "{:,.2f}".format(slip.tds) }}</strong></td>
+                    <td class="num-cell" data-value="{{ slip.tds * 12 }}">₹{{ "{:,.0f}".format(slip.tds * 12) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 {% else %}
-<div class="data-card">
+<section class="data-card">
     <div class="empty-state">
-        <div class="empty-icon"><i class="fas fa-gavel"></i></div>
-        <h3>No Data Found</h3>
-        <p>No payroll data for {{ months[selected_month - 1] }} {{ selected_year }}.</p>
+        <div class="empty-icon"><i class="fas fa-gavel" aria-hidden="true"></i></div>
+        <h3>No Statutory Data Found</h3>
+        <p>No processed payslips found for {{ months[selected_month - 1] }} {{ selected_year }}.</p>
     </div>
-</div>
+</section>
 {% endif %}
 {% endblock %}

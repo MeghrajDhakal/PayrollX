@@ -2,22 +2,25 @@
 {% block title %}Choose Organization{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1>Choose Organization</h1>
-    <p>You belong to multiple organizations on Opfin. Please select the organization that you would like to log in.</p>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-exchange-alt text-accent" aria-hidden="true"></i> Choose Organization</h1>
+        <p>Select your active tenant organization workspace on PayrollX.</p>
+    </div>
 </div>
 
 <div class="org-select-container">
     <div class="org-dropdown">
-        <span>{{ current_user.organization }}</span>
-        <i class="fas fa-chevron-down" style="color: var(--text-secondary);"></i>
+        <span>{{ current_user.organization.name if current_user.organization else 'Active Workspace' }}</span>
+        <span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> Active Tenant</span>
     </div>
 
-    <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-lg" style="text-transform: uppercase; letter-spacing: 1px;">
-        Select Organization
+    <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-lg">
+        <i class="fas fa-arrow-right" aria-hidden="true"></i>
+        <span>Enter Workspace Dashboard</span>
     </a>
 
-    <div class="org-note">
-        You can change your organization later by <strong>Organization</strong> option in the top-right profile menu.
-    </div>
+    <p class="org-note">
+        You can return here anytime via the account menu in the top-right bar.
+    </p>
 </div>
 {% endblock %}

@@ -2,82 +2,120 @@
 {% block title %}Pay Contractors{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1><i class="fas fa-handshake" style="color: var(--warning); margin-right: 8px;"></i> Pay Contractors</h1>
-    <p>Manage and process payments for freelancers and contract workers</p>
-</div>
-
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-label">Active Contractors</div>
-        <div class="stat-value">3</div>
-        <div class="stat-change positive"><i class="fas fa-check"></i> All verified</div>
-        <div class="stat-icon blue"><i class="fas fa-user-tie"></i></div>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-handshake text-accent" aria-hidden="true"></i> Pay Contractors</h1>
+        <p>Manage freelancer invoices, 194J 10% TDS withholding, and net settlement schedules.</p>
     </div>
-    <div class="stat-card">
-        <div class="stat-label">Pending Invoices</div>
-        <div class="stat-value">2</div>
-        <div class="stat-change negative"><i class="fas fa-clock"></i> Awaiting approval</div>
-        <div class="stat-icon orange"><i class="fas fa-file-invoice"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">This Month</div>
-        <div class="stat-value">₹1.8L</div>
-        <div class="stat-change positive"><i class="fas fa-arrow-up"></i> Total payable</div>
-        <div class="stat-icon green"><i class="fas fa-rupee-sign"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">TDS Withheld</div>
-        <div class="stat-value">₹18K</div>
-        <div class="stat-change positive"><i class="fas fa-percentage"></i> 10% of payments</div>
-        <div class="stat-icon purple"><i class="fas fa-receipt"></i></div>
+    <div class="page-actions">
+        <button type="button" class="btn btn-outline btn-sm" data-export-csv="contractorsTable" data-export-filename="contractors-payouts.csv">
+            <i class="fas fa-file-csv" aria-hidden="true"></i> Export CSV
+        </button>
     </div>
 </div>
 
-<div class="data-card" style="margin-bottom: 24px;">
+<div class="stats-grid-wrap">
+    <div class="stats-grid">
+        <article class="stat-card">
+            <div class="stat-label">Active Contractors</div>
+            <div class="stat-value">3</div>
+            <div class="stat-change positive"><i class="fas fa-check-circle" aria-hidden="true"></i> PAN Verified</div>
+            <div class="stat-icon blue"><i class="fas fa-user-tie" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Pending Invoices</div>
+            <div class="stat-value">2</div>
+            <div class="stat-change negative"><i class="fas fa-clock" aria-hidden="true"></i> Awaiting release</div>
+            <div class="stat-icon orange"><i class="fas fa-file-invoice" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Month Gross</div>
+            <div class="stat-value">₹1,80,000</div>
+            <div class="stat-change positive"><i class="fas fa-arrow-up" aria-hidden="true"></i> Invoiced total</div>
+            <div class="stat-icon green"><i class="fas fa-rupee-sign" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">TDS Withheld</div>
+            <div class="stat-value">₹18,000</div>
+            <div class="stat-change positive"><i class="fas fa-percentage" aria-hidden="true"></i> Sec 194J @ 10%</div>
+            <div class="stat-icon purple"><i class="fas fa-receipt" aria-hidden="true"></i></div>
+        </article>
+    </div>
+</div>
+
+<section class="data-card">
     <div class="data-card-header">
-        <h2>Contractor Directory</h2>
+        <h2 id="contractors-title">Contractor Directory</h2>
+        <div class="card-toolbar">
+            <search>
+                <div class="search-input-wrap">
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <label for="contractorFilterInput" class="visually-hidden">Filter contractors</label>
+                    <input type="search" id="contractorFilterInput" class="search-input" placeholder="Search contractor or PAN..." data-table-filter="contractorsTable">
+                </div>
+            </search>
+        </div>
     </div>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Contractor</th>
-                <th>PAN</th>
-                <th>Service</th>
-                <th>Invoice Amount</th>
-                <th>TDS (10%)</th>
-                <th>Net Payable</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td><div class="emp-info"><div class="emp-avatar" style="background: #e67e22;">DK</div><div><div class="emp-name">Deepak Kapoor</div><div class="emp-email">deepak@freelance.in</div></div></div></td>
-                <td>DKPK1234A</td>
-                <td>UI/UX Consulting</td>
-                <td>₹75,000</td>
-                <td>₹7,500</td>
-                <td><strong style="color: var(--success);">₹67,500</strong></td>
-                <td><span class="status-badge pending">Pending</span></td>
-            </tr>
-            <tr>
-                <td><div class="emp-info"><div class="emp-avatar" style="background: #3498db;">SM</div><div><div class="emp-name">Suman Mehta</div><div class="emp-email">suman@devagency.co</div></div></div></td>
-                <td>SMPK5678B</td>
-                <td>Cloud Infrastructure</td>
-                <td>₹60,000</td>
-                <td>₹6,000</td>
-                <td><strong style="color: var(--success);">₹54,000</strong></td>
-                <td><span class="status-badge active">Paid</span></td>
-            </tr>
-            <tr>
-                <td><div class="emp-info"><div class="emp-avatar" style="background: #9b59b6;">RV</div><div><div class="emp-name">Rekha Verma</div><div class="emp-email">rekha@legal.co.in</div></div></div></td>
-                <td>RVPK9012C</td>
-                <td>Legal Advisory</td>
-                <td>₹45,000</td>
-                <td>₹4,500</td>
-                <td><strong style="color: var(--success);">₹40,500</strong></td>
-                <td><span class="status-badge pending">Pending</span></td>
-            </tr>
-        </tbody>
-    </table>
-</div>
+    <p id="contractorsTable-filter-status" class="visually-hidden" role="status"></p>
+
+    <div tabindex="0" role="region" aria-labelledby="contractors-title" class="table-wrapper">
+        <table class="data-table" id="contractorsTable" data-sortable>
+            <caption class="visually-hidden">Freelance contractors and 10% TDS breakdown</caption>
+            <thead>
+                <tr>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="contractorsTable" command="--sort">Contractor <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="contractorsTable" command="--sort">PAN <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="contractorsTable" command="--sort">Service <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="contractorsTable" command="--sort">Invoice <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="contractorsTable" command="--sort">TDS (10%) <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="contractorsTable" command="--sort">Net Payable <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="contractorsTable" command="--sort">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td data-value="Deepak Kapoor">
+                        <div class="emp-info">
+                            <div class="emp-avatar" aria-hidden="true">DK</div>
+                            <div><div class="emp-name">Deepak Kapoor</div><div class="emp-email">deepak@freelance.in</div></div>
+                        </div>
+                    </td>
+                    <td class="mono">DKPK1234A</td>
+                    <td>UI/UX Consulting</td>
+                    <td class="num-cell" data-value="75000">₹75,000</td>
+                    <td class="num-cell text-danger" data-value="7500">₹7,500</td>
+                    <td class="num-cell text-success" data-value="67500"><strong>₹67,500</strong></td>
+                    <td><span class="status-badge pending"><i class="fas fa-clock" aria-hidden="true"></i> Pending</span></td>
+                </tr>
+                <tr>
+                    <td data-value="Suman Mehta">
+                        <div class="emp-info">
+                            <div class="emp-avatar" aria-hidden="true">SM</div>
+                            <div><div class="emp-name">Suman Mehta</div><div class="emp-email">suman@devagency.co</div></div>
+                        </div>
+                    </td>
+                    <td class="mono">SMPK5678B</td>
+                    <td>Cloud Infrastructure</td>
+                    <td class="num-cell" data-value="60000">₹60,000</td>
+                    <td class="num-cell text-danger" data-value="6000">₹6,000</td>
+                    <td class="num-cell text-success" data-value="54000"><strong>₹54,000</strong></td>
+                    <td><span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> Paid</span></td>
+                </tr>
+                <tr>
+                    <td data-value="Rekha Verma">
+                        <div class="emp-info">
+                            <div class="emp-avatar" aria-hidden="true">RV</div>
+                            <div><div class="emp-name">Rekha Verma</div><div class="emp-email">rekha@legal.co.in</div></div>
+                        </div>
+                    </td>
+                    <td class="mono">RVPK9012C</td>
+                    <td>Legal Advisory</td>
+                    <td class="num-cell" data-value="45000">₹45,000</td>
+                    <td class="num-cell text-danger" data-value="4500">₹4,500</td>
+                    <td class="num-cell text-success" data-value="40500"><strong>₹40,500</strong></td>
+                    <td><span class="status-badge pending"><i class="fas fa-clock" aria-hidden="true"></i> Pending</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
 {% endblock %}

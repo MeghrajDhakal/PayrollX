@@ -2,166 +2,284 @@
 {% block title %}Dashboard{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1>Dashboard</h1>
-    <p>Welcome back, {{ current_user.username }}! Here's your payroll overview.</p>
+    <div class="page-header-copy">
+        <h1>
+            <i class="fas fa-th-large text-accent" aria-hidden="true"></i>
+            <span>Dashboard</span>
+        </h1>
+        <p>Welcome back, <strong>{{ current_user.username }}</strong> &mdash; {{ current_user.organization.name if current_user.organization else 'Workspace' }}</p>
+    </div>
+    <div class="page-actions">
+        <span class="status-badge info">
+            <i class="fas fa-shield-alt" aria-hidden="true"></i>
+            <span>{{ current_user.role|replace('_', ' ')|title }}</span>
+        </span>
+    </div>
 </div>
 
-{% if role != 'employee' %}
-<!-- ═══ STATS ═══ -->
-<div class="stats-grid">
-    <div class="stat-card animate-in">
-        <div class="stat-label">Total Employees</div>
-        <div class="stat-value">{{ total_employees }}</div>
-        <div class="stat-change positive"><i class="fas fa-arrow-up"></i> Active headcount</div>
-        <div class="stat-icon blue"><i class="fas fa-users"></i></div>
-    </div>
-    <div class="stat-card animate-in">
-        <div class="stat-label">Last Payroll</div>
-        <div class="stat-value">₹{{ "{:,.0f}".format(total_payroll) }}</div>
-        <div class="stat-change positive"><i class="fas fa-check"></i> Disbursed</div>
-        <div class="stat-icon green"><i class="fas fa-rupee-sign"></i></div>
-    </div>
-    <div class="stat-card animate-in">
-        <div class="stat-label">Pending Approvals</div>
-        <div class="stat-value">{{ pending_runs }}</div>
-        <div class="stat-change {% if pending_runs > 0 %}negative{% else %}positive{% endif %}">
-            {% if pending_runs > 0 %}<i class="fas fa-clock"></i> Needs attention{% else %}<i class="fas fa-check"></i> All clear{% endif %}
+{% if role == 'employee' %}
+    {% if employee %}
+    <div class="stats-grid-wrap">
+        <div class="stats-grid">
+            <article class="stat-card">
+                <div class="stat-label">Employee Profile</div>
+                <div class="stat-value" style="font-size: 1.25rem;">{{ employee.full_name }}</div>
+                <div class="stat-change positive">
+                    <i class="fas fa-briefcase" aria-hidden="true"></i>
+                    <span>{{ employee.designation }}</span>
+                </div>
+                <div class="stat-icon blue"><i class="fas fa-user" aria-hidden="true"></i></div>
+            </article>
+            <article class="stat-card">
+                <div class="stat-label">Department</div>
+                <div class="stat-value" style="font-size: 1.25rem;">{{ employee.department }}</div>
+                <div class="stat-change">
+                    <i class="fas fa-envelope" aria-hidden="true"></i>
+                    <span>{{ employee.email }}</span>
+                </div>
+                <div class="stat-icon purple"><i class="fas fa-sitemap" aria-hidden="true"></i></div>
+            </article>
+            <article class="stat-card">
+                <div class="stat-label">Payslips Issued</div>
+                <div class="stat-value">{{ recent_slips|length }}</div>
+                <div class="stat-change positive">
+                    <i class="fas fa-file-pdf" aria-hidden="true"></i>
+                    <span>Ready to download</span>
+                </div>
+                <div class="stat-icon green"><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i></div>
+            </article>
         </div>
-        <div class="stat-icon orange"><i class="fas fa-hourglass-half"></i></div>
     </div>
-    <div class="stat-card animate-in">
-        <div class="stat-label">Finalized Runs</div>
-        <div class="stat-value">{{ finalized_runs }}</div>
-        <div class="stat-change positive"><i class="fas fa-check-double"></i> Completed</div>
-        <div class="stat-icon purple"><i class="fas fa-clipboard-check"></i></div>
-    </div>
-</div>
 
-<!-- ═══ QUICK ACTIONS ═══ -->
-<div class="data-card animate-in">
-    <div class="data-card-header">
-        <h2><i class="fas fa-bolt" style="color:var(--warning);margin-right:8px;"></i> Quick Actions</h2>
+    <div class="quick-actions" aria-label="Employee quick actions">
+        <a href="{{ url_for('payslips') }}" class="quick-action-btn">
+            <i class="fas fa-file-invoice-dollar" aria-hidden="true"></i>
+            <span>All My Payslips</span>
+        </a>
+        <a href="{{ url_for('attendance') }}" class="quick-action-btn">
+            <i class="fas fa-calendar-check" aria-hidden="true"></i>
+            <span>Attendance Logs</span>
+        </a>
+        <a href="{{ url_for('tax_deductions') }}" class="quick-action-btn">
+            <i class="fas fa-file-invoice" aria-hidden="true"></i>
+            <span>Tax Declarations</span>
+        </a>
+        <a href="{{ url_for('settings') }}" class="quick-action-btn">
+            <i class="fas fa-sliders-h" aria-hidden="true"></i>
+            <span>Appearance &amp; Settings</span>
+        </a>
     </div>
-    <div style="padding: 20px; display: flex; gap: 12px; flex-wrap: wrap;">
-        <a href="{{ url_for('run_payroll') }}" class="btn btn-primary"><i class="fas fa-play"></i> Run Payroll</a>
-        <a href="{{ url_for('people') }}" class="btn btn-outline"><i class="fas fa-user-plus"></i> Add Employee</a>
-        <a href="{{ url_for('reports') }}" class="btn btn-outline"><i class="fas fa-download"></i> Download Reports</a>
-        <a href="{{ url_for('payslips') }}" class="btn btn-outline"><i class="fas fa-file-invoice"></i> View Payslips</a>
-    </div>
-</div>
 
-<!-- ═══ RECENT PAYROLL RUNS ═══ -->
-<div class="data-card animate-in">
-    <div class="data-card-header">
-        <h2>Recent Payroll Runs</h2>
-        <a href="{{ url_for('run_payroll') }}" class="btn btn-outline btn-sm">View All</a>
-    </div>
-    {% if recent_runs %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Period</th>
-                <th>Employees</th>
-                <th>Gross Pay</th>
-                <th>Deductions</th>
-                <th>Net Pay</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for run in recent_runs %}
-            <tr>
-                <td><strong>{{ run.month }}/{{ run.year }}</strong></td>
-                <td>{{ run.employee_count }}</td>
-                <td>₹{{ "{:,.0f}".format(run.total_gross) }}</td>
-                <td>₹{{ "{:,.0f}".format(run.total_deductions) }}</td>
-                <td><strong>₹{{ "{:,.0f}".format(run.total_net) }}</strong></td>
-                <td><span class="status-badge {{ run.status }}">{{ run.status }}</span></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <section class="data-card">
+        <div class="data-card-header">
+            <h2 id="emp-recent-slips-title"><i class="fas fa-file-invoice-dollar text-accent" aria-hidden="true"></i> My Recent Payslips</h2>
+            <a href="{{ url_for('payslips') }}" class="btn btn-outline btn-sm">View All</a>
+        </div>
+        {% if recent_slips %}
+        <div tabindex="0" role="region" aria-labelledby="emp-recent-slips-title" class="table-wrapper">
+            <table class="data-table" id="empRecentSlipsTable" data-sortable>
+                <caption class="visually-hidden">Your recent monthly payslips</caption>
+                <thead>
+                    <tr>
+                        <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="empRecentSlipsTable" command="--sort">Pay Period <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="empRecentSlipsTable" command="--sort">Gross Pay <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="empRecentSlipsTable" command="--sort">Deductions <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="empRecentSlipsTable" command="--sort">Net Pay <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                        <th scope="col">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for slip in recent_slips %}
+                    <tr>
+                        <td data-value="{{ '%04d-%02d'|format(slip.year, slip.month) }}"><strong>{{ slip.month }}/{{ slip.year }}</strong></td>
+                        <td class="num-cell" data-value="{{ slip.gross_pay }}">₹{{ "{:,.2f}".format(slip.gross_pay) }}</td>
+                        <td class="num-cell text-danger" data-value="{{ slip.total_deductions }}">-₹{{ "{:,.2f}".format(slip.total_deductions) }}</td>
+                        <td class="num-cell text-success" data-value="{{ slip.net_pay }}"><strong>₹{{ "{:,.2f}".format(slip.net_pay) }}</strong></td>
+                        <td>
+                            <div class="card-toolbar">
+                                <a href="{{ url_for('download_payslip', slip_id=slip.slip_id) }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">
+                                    <i class="fas fa-print" aria-hidden="true"></i> View
+                                </a>
+                                <a href="{{ url_for('download_payslip_pdf', slip_id=slip.slip_id) }}" class="btn btn-primary btn-sm">
+                                    <i class="fas fa-file-pdf" aria-hidden="true"></i> PDF
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i></div>
+            <h3>No Payslips Generated Yet</h3>
+            <p>Your monthly payslips will appear here once payroll is processed for your organization.</p>
+        </div>
+        {% endif %}
+    </section>
     {% else %}
-    <div class="empty-state">
-        <div class="empty-icon"><i class="fas fa-play-circle"></i></div>
-        <h3>No Payroll Runs Yet</h3>
-        <p>Run your first payroll to see results here.</p>
+    <div class="data-card">
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-user-clock" aria-hidden="true"></i></div>
+            <h3>Employee Profile Not Linked</h3>
+            <p>Contact your organization administrator to link your user account to an employee record.</p>
+        </div>
     </div>
     {% endif %}
-</div>
 
-<!-- ═══ EMPLOYEE DIRECTORY ═══ -->
-<div class="data-card animate-in">
-    <div class="data-card-header">
-        <h2>Employee Directory</h2>
-        <a href="{{ url_for('people') }}" class="btn btn-outline btn-sm">Manage</a>
-    </div>
-    {% if employees %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Employee</th>
-                <th>Department</th>
-                <th>Designation</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for emp in employees[:5] %}
-            <tr>
-                <td>
-                    <div class="emp-info">
-                        <div class="emp-avatar">{{ emp.first_name[0] }}{{ emp.last_name[0] }}</div>
-                        <div>
-                            <div class="emp-name">{{ emp.full_name }}</div>
-                            <div class="emp-email">{{ emp.email }}</div>
-                        </div>
-                    </div>
-                </td>
-                <td>{{ emp.department }}</td>
-                <td>{{ emp.designation }}</td>
-                <td><span class="status-badge {{ emp.status }}">{{ emp.status }}</span></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% endif %}
-</div>
 {% else %}
-<!-- ═══ EMPLOYEE DASHBOARD ═══ -->
-<div class="data-card animate-in">
-    <div class="data-card-header">
-        <h2>My Recent Payslips</h2>
+<!-- Admin / Finance Workspace Overview -->
+<div class="stats-grid-wrap">
+    <div class="stats-grid">
+        <article class="stat-card">
+            <div class="stat-label">Active Employees</div>
+            <div class="stat-value">{{ total_employees }}</div>
+            <div class="stat-change positive">
+                <i class="fas fa-check-circle" aria-hidden="true"></i>
+                <span>Active directory</span>
+            </div>
+            <div class="stat-icon blue"><i class="fas fa-users" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Pending Approval</div>
+            <div class="stat-value">{{ pending_runs }}</div>
+            <div class="stat-change {% if pending_runs > 0 %}negative{% else %}positive{% endif %}">
+                <i class="fas {% if pending_runs > 0 %}fa-clock{% else %}fa-check{% endif %}" aria-hidden="true"></i>
+                <span>{{ 'Needs approval' if pending_runs > 0 else 'Queue clear' }}</span>
+            </div>
+            <div class="stat-icon orange"><i class="fas fa-hourglass-half" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Finalized Runs</div>
+            <div class="stat-value">{{ finalized_runs }}</div>
+            <div class="stat-change positive">
+                <i class="fas fa-shield-alt" aria-hidden="true"></i>
+                <span>Completed cycles</span>
+            </div>
+            <div class="stat-icon green"><i class="fas fa-check-double" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Total Net Disbursed</div>
+            <div class="stat-value">₹{{ "{:,.0f}".format(total_payroll) }}</div>
+            <div class="stat-change positive">
+                <i class="fas fa-rupee-sign" aria-hidden="true"></i>
+                <span>All finalized runs</span>
+            </div>
+            <div class="stat-icon purple"><i class="fas fa-wallet" aria-hidden="true"></i></div>
+        </article>
     </div>
-    {% if recent_slips %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Period</th>
-                <th>Basic Pay</th>
-                <th>Deductions</th>
-                <th>Net Pay</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for slip in recent_slips %}
-            <tr>
-                <td><strong>{{ slip.month }}/{{ slip.year }}</strong></td>
-                <td>₹{{ "{:,.0f}".format(slip.basic_pay) }}</td>
-                <td>₹{{ "{:,.0f}".format(slip.total_deductions) }}</td>
-                <td><strong>₹{{ "{:,.0f}".format(slip.net_pay) }}</strong></td>
-                <td><a href="{{ url_for('download_payslip', slip_id=slip.slip_id) }}" class="btn btn-outline btn-sm">Download</a></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">
-        <div class="empty-icon"><i class="fas fa-file-invoice"></i></div>
-        <h3>No Payslips Yet</h3>
-    </div>
-    {% endif %}
+</div>
+
+<nav class="quick-actions" aria-label="Quick payroll actions">
+    <a href="{{ url_for('run_payroll') }}" class="quick-action-btn">
+        <i class="fas fa-play-circle" aria-hidden="true"></i>
+        <span>Run Monthly Payroll</span>
+    </a>
+    <a href="{{ url_for('people') }}" class="quick-action-btn">
+        <i class="fas fa-user-plus" aria-hidden="true"></i>
+        <span>Manage Employees</span>
+    </a>
+    <a href="{{ url_for('attendance') }}" class="quick-action-btn">
+        <i class="fas fa-calendar-check" aria-hidden="true"></i>
+        <span>Record Attendance</span>
+    </a>
+    <a href="{{ url_for('reports') }}" class="quick-action-btn">
+        <i class="fas fa-chart-bar" aria-hidden="true"></i>
+        <span>Statutory Reports</span>
+    </a>
+</nav>
+
+<div class="content-grid">
+    <section class="data-card">
+        <div class="data-card-header">
+            <h2 id="dash-runs-title"><i class="fas fa-history text-accent" aria-hidden="true"></i> Recent Payroll Runs</h2>
+            <a href="{{ url_for('run_payroll') }}" class="btn btn-outline btn-sm">Open Payroll</a>
+        </div>
+        {% if recent_runs %}
+        <div tabindex="0" role="region" aria-labelledby="dash-runs-title" class="table-wrapper">
+            <table class="data-table" id="dashRunsTable" data-sortable>
+                <caption class="visually-hidden">Recent monthly payroll runs</caption>
+                <thead>
+                    <tr>
+                        <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="dashRunsTable" command="--sort">Period <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="dashRunsTable" command="--sort">Staff <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="dashRunsTable" command="--sort">Net Pay <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="dashRunsTable" command="--sort">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in recent_runs %}
+                    <tr>
+                        <td data-value="{{ '%04d-%02d'|format(run.year, run.month) }}"><strong>{{ "%02d"|format(run.month) }}/{{ run.year }}</strong></td>
+                        <td class="num-cell" data-value="{{ run.employee_count }}">{{ run.employee_count }}</td>
+                        <td class="num-cell text-success" data-value="{{ run.total_net }}"><strong>₹{{ "{:,.0f}".format(run.total_net) }}</strong></td>
+                        <td>
+                            {% if run.status == 'finalized' %}
+                            <span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> Finalized</span>
+                            {% else %}
+                            <span class="status-badge pending"><i class="fas fa-clock" aria-hidden="true"></i> Pending</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-play-circle" aria-hidden="true"></i></div>
+            <h3>No Payroll Runs Yet</h3>
+            <p>Execute your first payroll run to calculate employee salaries and generate payslips.</p>
+            <a href="{{ url_for('run_payroll') }}" class="btn btn-primary btn-sm">Run First Payroll</a>
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="data-card">
+        <div class="data-card-header">
+            <h2 id="dash-dir-title"><i class="fas fa-users text-accent" aria-hidden="true"></i> Active Directory</h2>
+            <a href="{{ url_for('people') }}" class="btn btn-outline btn-sm">All Staff ({{ total_employees }})</a>
+        </div>
+        {% if employees %}
+        <div tabindex="0" role="region" aria-labelledby="dash-dir-title" class="table-wrapper">
+            <table class="data-table" id="dashEmpTable" data-sortable>
+                <caption class="visually-hidden">Preview of active employees</caption>
+                <thead>
+                    <tr>
+                        <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="dashEmpTable" command="--sort">Employee <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="dashEmpTable" command="--sort">Department <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                        <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="dashEmpTable" command="--sort">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for emp in employees[:6] %}
+                    <tr>
+                        <td>
+                            <div class="emp-info">
+                                <div class="emp-avatar" aria-hidden="true">{{ emp.first_name[0] }}{{ emp.last_name[0] }}</div>
+                                <div>
+                                    <div class="emp-name">{{ emp.full_name }}</div>
+                                    <div class="emp-email">{{ emp.designation }}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>{{ emp.department }}</td>
+                        <td><span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> Active</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-users" aria-hidden="true"></i></div>
+            <h3>No Employees Yet</h3>
+            <p>Add your team members in the People directory to include them in monthly payroll runs.</p>
+            <a href="{{ url_for('people') }}" class="btn btn-primary btn-sm">Add Employees</a>
+        </div>
+        {% endif %}
+    </section>
 </div>
 {% endif %}
 {% endblock %}

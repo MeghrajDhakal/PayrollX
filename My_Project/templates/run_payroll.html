@@ -2,104 +2,130 @@
 {% block title %}Run Payroll{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1>Run Payroll</h1>
-    <p>Calculate and process monthly payroll for your organization</p>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-play-circle text-accent" aria-hidden="true"></i> Run Payroll</h1>
+        <p>Execute atomic monthly salary calculations, inspect deductions, and approve payouts.</p>
+    </div>
+    <div class="page-actions">
+        <span class="status-badge info">
+            <i class="fas fa-users" aria-hidden="true"></i>
+            <span>{{ employees|length }} Active Eligible</span>
+        </span>
+    </div>
 </div>
 
-<!-- ═══ PAYROLL CONTROLS ═══ -->
-<div class="data-card" style="margin-bottom: 24px;">
+<!-- Calculate Monthly Payroll Card -->
+<section class="data-card">
     <div class="data-card-header">
-        <h2><i class="fas fa-play-circle" style="color: var(--primary); margin-right: 8px;"></i> Process New Payroll</h2>
+        <h2><i class="fas fa-calculator text-accent" aria-hidden="true"></i> Execute Payroll Cycle</h2>
     </div>
-    <div style="padding: 20px;">
-        <form method="POST" action="{{ url_for('run_payroll') }}">
+    <div class="data-card-body">
+        <form method="POST" action="{{ url_for('run_payroll') }}" id="executePayrollForm">
+            {% set months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
             <div class="payroll-controls">
                 <div class="form-group">
-                    <label>Month</label>
-                    <select name="month" class="form-control" style="width: 160px;">
-                        <option value="1">January</option>
-                        <option value="2">February</option>
-                        <option value="3" selected>March</option>
-                        <option value="4">April</option>
-                        <option value="5">May</option>
-                        <option value="6">June</option>
-                        <option value="7">July</option>
-                        <option value="8">August</option>
-                        <option value="9">September</option>
-                        <option value="10">October</option>
-                        <option value="11">November</option>
-                        <option value="12">December</option>
+                    <label for="run_month">Payroll Month</label>
+                    <select id="run_month" name="month" class="form-control select-month" required>
+                        {% for m in months %}
+                        <option value="{{ loop.index }}">{{ m }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Year</label>
-                    <select name="year" class="form-control" style="width: 120px;">
+                    <label for="run_year">Year</label>
+                    <select id="run_year" name="year" class="form-control select-year" required>
                         <option value="2025">2025</option>
                         <option value="2026" selected>2026</option>
+                        <option value="2027">2027</option>
                     </select>
                 </div>
-                <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-calculator"></i> Calculate Payroll
+                <button type="submit" class="btn btn-primary btn-lg">
+                    <i class="fas fa-bolt" aria-hidden="true"></i>
+                    <span>Calculate Payroll</span>
                 </button>
             </div>
-            <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
-                <i class="fas fa-info-circle"></i>
-                This will compute Gross Pay, EPF, ESI, PT, TDS, and Net Pay for all <strong>{{ employees|length }}</strong> active employees.
+            <p class="field-hint" style="margin-block-start: 0.75rem;">
+                Calculation runs atomically across active staff using Attendance LOP adjustments and statutory rates. Finalized periods are locked against overwrite.
             </p>
         </form>
     </div>
-</div>
+</section>
 
-<!-- ═══ PAYROLL HISTORY ═══ -->
-<div class="data-card">
+<!-- Payroll Run History -->
+<section class="data-card">
     <div class="data-card-header">
-        <h2>Payroll Run History</h2>
+        <h2 id="payroll-history-title"><i class="fas fa-history text-accent" aria-hidden="true"></i> Payroll Runs History ({{ runs|length }})</h2>
+        <div class="card-toolbar">
+            {% if runs %}
+            <button type="button" class="btn btn-outline btn-sm" data-export-csv="payrollRunsTable" data-export-filename="payroll-runs.csv">
+                <i class="fas fa-file-csv" aria-hidden="true"></i>
+                <span>Export CSV</span>
+            </button>
+            {% endif %}
+        </div>
     </div>
+
     {% if runs %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Period</th>
-                <th>Employees</th>
-                <th>Total Gross</th>
-                <th>Total Deductions</th>
-                <th>Total Net Pay</th>
-                <th>Status</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for run in runs %}
-            <tr>
-                <td><strong>{{ run.month }}/{{ run.year }}</strong></td>
-                <td>{{ run.employee_count }}</td>
-                <td>₹{{ "{:,.0f}".format(run.total_gross) }}</td>
-                <td>₹{{ "{:,.0f}".format(run.total_deductions) }}</td>
-                <td><strong style="color: var(--success);">₹{{ "{:,.0f}".format(run.total_net) }}</strong></td>
-                <td><span class="status-badge {{ run.status }}">{{ run.status }}</span></td>
-                <td>
-                    {% if run.status == 'pending' %}
-                    <form method="POST" action="{{ url_for('approve_payroll', run_id=run.run_id) }}" style="display:inline;">
-                        <button type="submit" class="btn btn-success btn-sm" onclick="return confirmAction('Finalize payroll for {{ run.month }}/{{ run.year }}?')">
-                            <i class="fas fa-check"></i> Approve & Finalize
-                        </button>
-                    </form>
-                    {% elif run.status == 'finalized' %}
-                    <span style="color: var(--success); font-size: 12px;"><i class="fas fa-check-double"></i> Completed</span>
-                    {% else %}
-                    <span style="color: var(--text-muted); font-size: 12px;">{{ run.status }}</span>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    {% set months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+    <div tabindex="0" role="region" aria-labelledby="payroll-history-title" class="table-wrapper">
+        <table class="data-table" id="payrollRunsTable" data-sortable>
+            <caption class="visually-hidden">Payroll runs execution and approval history</caption>
+            <thead>
+                <tr>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="payrollRunsTable" command="--sort">Pay Period <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="payrollRunsTable" command="--sort">Employees <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="payrollRunsTable" command="--sort">Gross Pay <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="payrollRunsTable" command="--sort">Deductions <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="payrollRunsTable" command="--sort">Net Pay <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="payrollRunsTable" command="--sort">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in runs %}
+                <tr>
+                    <td data-value="{{ '%04d-%02d'|format(run.year, run.month) }}">
+                        <strong>{{ months[run.month - 1] if 1 <= run.month <= 12 else run.month }} {{ run.year }}</strong>
+                    </td>
+                    <td class="num-cell" data-value="{{ run.employee_count }}">{{ run.employee_count }}</td>
+                    <td class="num-cell" data-value="{{ run.total_gross }}">₹{{ "{:,.2f}".format(run.total_gross) }}</td>
+                    <td class="num-cell text-danger" data-value="{{ run.total_deductions }}">₹{{ "{:,.2f}".format(run.total_deductions) }}</td>
+                    <td class="num-cell text-success" data-value="{{ run.total_net }}"><strong>₹{{ "{:,.2f}".format(run.total_net) }}</strong></td>
+                    <td>
+                        {% if run.status == 'finalized' %}
+                        <span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> Finalized</span>
+                        {% else %}
+                        <span class="status-badge pending"><i class="fas fa-clock" aria-hidden="true"></i> Pending</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if run.status != 'finalized' %}
+                        <form
+                            method="POST"
+                            action="{{ url_for('approve_payroll', run_id=run.run_id) }}"
+                            data-confirm="Approve and finalize payroll for {{ run.month }}/{{ run.year }} (Net ₹{{ '{:,.2f}'.format(run.total_net) }})? Finalized runs cannot be overwritten."
+                            data-confirm-title="Approve Payroll Run"
+                            data-confirm-cta="Finalize Payroll"
+                        >
+                            <button type="submit" class="btn btn-success btn-sm">
+                                <i class="fas fa-check" aria-hidden="true"></i> Approve
+                            </button>
+                        </form>
+                        {% else %}
+                        <a href="{{ url_for('payslips') }}" class="btn btn-outline btn-sm">View Payslips</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
     {% else %}
     <div class="empty-state">
-        <div class="empty-icon"><i class="fas fa-play-circle"></i></div>
-        <h3>No Payroll Runs</h3>
-        <p>Select a month and year above, then click "Calculate Payroll" to process your first run.</p>
+        <div class="empty-icon"><i class="fas fa-play-circle" aria-hidden="true"></i></div>
+        <h3>No Payroll Runs Found</h3>
+        <p>Select a month and year above to generate your organization's first payroll cycle.</p>
     </div>
     {% endif %}
-</div>
+</section>
 {% endblock %}

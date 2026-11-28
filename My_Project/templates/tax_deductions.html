@@ -2,78 +2,126 @@
 {% block title %}Tax Deductions{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1>Tax Deductions</h1>
-    <p>Employee investment declarations for TDS computation under Section 80C, 80D</p>
-</div>
-
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-label">Section 80C</div>
-        <div class="stat-value">₹1,50,000</div>
-        <div class="stat-change positive">Max Limit (PPF, ELSS, LIC)</div>
-        <div class="stat-icon blue"><i class="fas fa-piggy-bank"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Section 80D</div>
-        <div class="stat-value">₹25,000</div>
-        <div class="stat-change positive">Health Insurance Premium</div>
-        <div class="stat-icon green"><i class="fas fa-heartbeat"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">HRA Exemption</div>
-        <div class="stat-value">As per rules</div>
-        <div class="stat-change positive">Rent-based calculation</div>
-        <div class="stat-icon purple"><i class="fas fa-home"></i></div>
-    </div>
-</div>
-
-<div class="data-card">
-    <div class="data-card-header">
-        <h2>Employee Tax Declarations (FY 2025-26)</h2>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-file-invoice text-accent" aria-hidden="true"></i> Tax Deductions &amp; Exemptions</h1>
+        <p>Review declared Chapter VI-A deductions, HRA exemptions, and active TDS tax regime elections.</p>
     </div>
     {% if declarations %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Employee</th>
-                <th>Regime</th>
-                <th>80C</th>
-                <th>80D</th>
-                <th>80E</th>
-                <th>HRA</th>
-                <th>LTA</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for dec in declarations %}
-            <tr>
-                <td>
-                    <div class="emp-info">
-                        <div class="emp-avatar">{{ dec.employee.first_name[0] }}{{ dec.employee.last_name[0] }}</div>
-                        <div>
-                            <div class="emp-name">{{ dec.employee.full_name }}</div>
-                            <div class="emp-email">{{ dec.financial_year }}</div>
-                        </div>
-                    </div>
-                </td>
-                <td><span class="status-badge {% if dec.regime == 'new' %}active{% else %}pending{% endif %}">{{ dec.regime|upper }}</span></td>
-                <td>₹{{ "{:,.0f}".format(dec.section_80c) }}</td>
-                <td>₹{{ "{:,.0f}".format(dec.section_80d) }}</td>
-                <td>₹{{ "{:,.0f}".format(dec.section_80e) }}</td>
-                <td>₹{{ "{:,.0f}".format(dec.hra_exemption) }}</td>
-                <td>₹{{ "{:,.0f}".format(dec.lta_claimed) }}</td>
-                <td><span class="status-badge {{ dec.status }}">{{ dec.status }}</span></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">
-        <div class="empty-icon"><i class="fas fa-percentage"></i></div>
-        <h3>No Declarations Found</h3>
-        <p>Tax declarations will appear once employees submit them.</p>
+    <div class="page-actions">
+        <button type="button" class="btn btn-outline btn-sm" data-export-csv="taxTable" data-export-filename="tax-declarations.csv">
+            <i class="fas fa-file-csv" aria-hidden="true"></i> Export CSV
+        </button>
     </div>
     {% endif %}
 </div>
+
+<div class="stats-grid-wrap">
+    <div class="stats-grid">
+        <article class="stat-card">
+            <div class="stat-label">Section 80C Max</div>
+            <div class="stat-value">₹1,50,000</div>
+            <div class="stat-change positive"><i class="fas fa-piggy-bank" aria-hidden="true"></i> PPF, ELSS, LIC</div>
+            <div class="stat-icon blue"><i class="fas fa-piggy-bank" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Section 80D Max</div>
+            <div class="stat-value">₹75,000</div>
+            <div class="stat-change positive"><i class="fas fa-heartbeat" aria-hidden="true"></i> Medical insurance</div>
+            <div class="stat-icon green"><i class="fas fa-heartbeat" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Standard Deduction</div>
+            <div class="stat-value">₹75,000</div>
+            <div class="stat-change positive"><i class="fas fa-landmark" aria-hidden="true"></i> FY 2025-26 New Regime</div>
+            <div class="stat-icon purple"><i class="fas fa-landmark" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Declarations Filed</div>
+            <div class="stat-value">{{ declarations|length }}</div>
+            <div class="stat-change positive"><i class="fas fa-check-circle" aria-hidden="true"></i> Current FY</div>
+            <div class="stat-icon orange"><i class="fas fa-file-alt" aria-hidden="true"></i></div>
+        </article>
+    </div>
+</div>
+
+<section class="data-card">
+    <div class="data-card-header">
+        <h2 id="tax-table-title">Employee Tax Declarations ({{ declarations|length }})</h2>
+        {% if declarations %}
+        <div class="card-toolbar">
+            <search>
+                <div class="search-input-wrap">
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <label for="taxFilterInput" class="visually-hidden">Filter declarations</label>
+                    <input type="search" id="taxFilterInput" class="search-input" placeholder="Search employee, regime..." data-table-filter="taxTable">
+                </div>
+            </search>
+        </div>
+        {% endif %}
+    </div>
+    <p id="taxTable-filter-status" class="visually-hidden" role="status"></p>
+
+    {% if declarations %}
+    <div tabindex="0" role="region" aria-labelledby="tax-table-title" class="table-wrapper">
+        <table class="data-table" id="taxTable" data-sortable>
+            <caption class="visually-hidden">Employee tax regime and deduction declarations</caption>
+            <thead>
+                <tr>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="taxTable" command="--sort">Employee <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="taxTable" command="--sort">FY <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="taxTable" command="--sort">Regime <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="taxTable" command="--sort">80C <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="taxTable" command="--sort">80D <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="taxTable" command="--sort">HRA Exemption <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="taxTable" command="--sort">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in declarations %}
+                {% set emp_label = d.employee.full_name if d.employee else ('Employee #' ~ d.emp_id) %}
+                <tr>
+                    <td data-value="{{ emp_label }}">
+                        {% if d.employee %}
+                        <div class="emp-info">
+                            <div class="emp-avatar" aria-hidden="true">{{ d.employee.first_name[0] }}{{ d.employee.last_name[0] }}</div>
+                            <div>
+                                <div class="emp-name">{{ d.employee.full_name }}</div>
+                                <div class="emp-email">{{ d.employee.department }}</div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <strong>{{ emp_label }}</strong>
+                        {% endif %}
+                    </td>
+                    <td class="mono">{{ d.financial_year }}</td>
+                    <td>
+                        <span class="status-badge {{ 'info' if d.regime == 'new' else 'pending' }}">
+                            {{ d.regime|upper }} Regime
+                        </span>
+                    </td>
+                    <td class="num-cell" data-value="{{ d.section_80c }}">₹{{ "{:,.0f}".format(d.section_80c) }}</td>
+                    <td class="num-cell" data-value="{{ d.section_80d }}">₹{{ "{:,.0f}".format(d.section_80d) }}</td>
+                    <td class="num-cell" data-value="{{ d.hra_exemption }}">₹{{ "{:,.0f}".format(d.hra_exemption) }}</td>
+                    <td>
+                        {% if d.status == 'verified' %}
+                        <span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> Verified</span>
+                        {% elif d.status == 'submitted' %}
+                        <span class="status-badge info"><i class="fas fa-paper-plane" aria-hidden="true"></i> Submitted</span>
+                        {% else %}
+                        <span class="status-badge pending"><i class="fas fa-edit" aria-hidden="true"></i> Draft</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fas fa-file-invoice" aria-hidden="true"></i></div>
+        <h3>No Tax Declarations Found</h3>
+        <p>Declarations submitted for the active financial year will appear here.</p>
+    </div>
+    {% endif %}
+</section>
 {% endblock %}

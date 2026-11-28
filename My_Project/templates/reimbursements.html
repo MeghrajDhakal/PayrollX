@@ -2,61 +2,113 @@
 {% block title %}Reimbursements{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1>Reimbursements</h1>
-    <p>Submit and track expense reimbursement claims</p>
-</div>
-
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-label">Total Claims</div>
-        <div class="stat-value">{{ claims|length }}</div>
-        <div class="stat-icon blue"><i class="fas fa-receipt"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Pending</div>
-        <div class="stat-value">{{ claims|selectattr('status', 'equalto', 'pending')|list|length }}</div>
-        <div class="stat-icon orange"><i class="fas fa-clock"></i></div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Approved</div>
-        <div class="stat-value">{{ claims|selectattr('status', 'equalto', 'approved')|list|length }}</div>
-        <div class="stat-icon green"><i class="fas fa-check"></i></div>
-    </div>
-</div>
-
-<div class="data-card">
-    <div class="data-card-header">
-        <h2>Reimbursement Claims</h2>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-receipt text-accent" aria-hidden="true"></i> Reimbursements</h1>
+        <p>Track expense claims, medical bills, travel vouchers, and payout approvals.</p>
     </div>
     {% if claims %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Category</th>
-                <th>Amount</th>
-                <th>Description</th>
-                <th>Date</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for claim in claims %}
-            <tr>
-                <td><span class="status-badge active">{{ claim.category }}</span></td>
-                <td><strong>₹{{ "{:,.0f}".format(claim.amount) }}</strong></td>
-                <td>{{ claim.description or '—' }}</td>
-                <td>{{ claim.receipt_date }}</td>
-                <td><span class="status-badge {{ claim.status }}">{{ claim.status }}</span></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">
-        <div class="empty-icon"><i class="fas fa-tags"></i></div>
-        <h3>No Reimbursement Claims</h3>
-        <p>Submit your first expense claim to get started.</p>
+    <div class="page-actions">
+        <button type="button" class="btn btn-outline btn-sm" data-export-csv="reimbTable" data-export-filename="reimbursements.csv">
+            <i class="fas fa-file-csv" aria-hidden="true"></i> Export CSV
+        </button>
     </div>
     {% endif %}
 </div>
+
+{% set approved_claims = claims|selectattr('status', 'in', ['approved', 'paid'])|list %}
+{% set pending_claims = claims|selectattr('status', 'equalto', 'pending')|list %}
+<div class="stats-grid-wrap">
+    <div class="stats-grid">
+        <article class="stat-card">
+            <div class="stat-label">Total Claims</div>
+            <div class="stat-value">{{ claims|length }}</div>
+            <div class="stat-change positive"><i class="fas fa-receipt" aria-hidden="true"></i> All submissions</div>
+            <div class="stat-icon blue"><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Pending Review</div>
+            <div class="stat-value">{{ pending_claims|length }}</div>
+            <div class="stat-change {% if pending_claims|length > 0 %}negative{% else %}positive{% endif %}">
+                <i class="fas fa-clock" aria-hidden="true"></i> Awaiting approval
+            </div>
+            <div class="stat-icon orange"><i class="fas fa-hourglass-half" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Total Claimed</div>
+            <div class="stat-value">₹{{ "{:,.0f}".format(claims|sum(attribute='amount')) }}</div>
+            <div class="stat-change positive"><i class="fas fa-rupee-sign" aria-hidden="true"></i> Across claims</div>
+            <div class="stat-icon purple"><i class="fas fa-wallet" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+            <div class="stat-label">Approved &amp; Paid</div>
+            <div class="stat-value">₹{{ "{:,.0f}".format(approved_claims|sum(attribute='amount')) }}</div>
+            <div class="stat-change positive"><i class="fas fa-check-circle" aria-hidden="true"></i> Cleared amount</div>
+            <div class="stat-icon green"><i class="fas fa-check-double" aria-hidden="true"></i></div>
+        </article>
+    </div>
+</div>
+
+<section class="data-card">
+    <div class="data-card-header">
+        <h2 id="reimb-table-title">Expense Claims ({{ claims|length }})</h2>
+        {% if claims %}
+        <div class="card-toolbar">
+            <search>
+                <div class="search-input-wrap">
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <label for="reimbFilterInput" class="visually-hidden">Filter claims</label>
+                    <input type="search" id="reimbFilterInput" class="search-input" placeholder="Search category or description..." data-table-filter="reimbTable">
+                </div>
+            </search>
+        </div>
+        {% endif %}
+    </div>
+    <p id="reimbTable-filter-status" class="visually-hidden" role="status"></p>
+
+    {% if claims %}
+    <div tabindex="0" role="region" aria-labelledby="reimb-table-title" class="table-wrapper">
+        <table class="data-table" id="reimbTable" data-sortable>
+            <caption class="visually-hidden">Employee reimbursement claims list</caption>
+            <thead>
+                <tr>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="reimbTable" command="--sort">Claim ID <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="reimbTable" command="--sort">Employee <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="reimbTable" command="--sort">Category <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="reimbTable" command="--sort">Description <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="reimbTable" command="--sort">Receipt Date <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="reimbTable" command="--sort">Amount <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="reimbTable" command="--sort">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in claims %}
+                <tr>
+                    <td class="mono" data-value="{{ c.claim_id }}">#CLM-{{ "%03d"|format(c.claim_id) }}</td>
+                    <td>EMP-{{ "%04d"|format(c.emp_id) }}</td>
+                    <td><span class="status-badge info">{{ c.category|title }}</span></td>
+                    <td>{{ c.description or '—' }}</td>
+                    <td class="mono">{{ c.receipt_date }}</td>
+                    <td class="num-cell" data-value="{{ c.amount }}"><strong>₹{{ "{:,.2f}".format(c.amount) }}</strong></td>
+                    <td>
+                        {% if c.status in ['approved', 'paid'] %}
+                        <span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> {{ c.status|title }}</span>
+                        {% elif c.status == 'rejected' %}
+                        <span class="status-badge inactive"><i class="fas fa-times-circle" aria-hidden="true"></i> Rejected</span>
+                        {% else %}
+                        <span class="status-badge pending"><i class="fas fa-clock" aria-hidden="true"></i> Pending</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fas fa-receipt" aria-hidden="true"></i></div>
+        <h3>No Reimbursement Claims</h3>
+        <p>Submitted expense reimbursement vouchers will appear here.</p>
+    </div>
+    {% endif %}
+</section>
 {% endblock %}

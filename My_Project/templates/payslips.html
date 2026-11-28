@@ -2,65 +2,93 @@
 {% block title %}My Pay Slips{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1>My Pay Slips</h1>
-    <p>View and download your monthly salary slips</p>
-</div>
-
-<div class="data-card">
-    <div class="data-card-header">
-        <h2>Pay Slip History</h2>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-file-invoice-dollar text-accent" aria-hidden="true"></i> Pay Slips</h1>
+        <p>Review monthly earnings, statutory deductions, and download printable PDF or HTML payslips.</p>
     </div>
     {% if payslips %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Employee</th>
-                <th>Period</th>
-                <th>Basic</th>
-                <th>HRA</th>
-                <th>Gross Pay</th>
-                <th>EPF</th>
-                <th>TDS</th>
-                <th>Total Ded.</th>
-                <th>Net Pay</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for slip in payslips %}
-            <tr>
-                <td>
-                    <div class="emp-info">
-                        <div class="emp-avatar">{{ slip.employee.first_name[0] }}{{ slip.employee.last_name[0] }}</div>
-                        <div>
-                            <div class="emp-name">{{ slip.employee.full_name }}</div>
-                            <div class="emp-email">{{ slip.employee.department }}</div>
-                        </div>
-                    </div>
-                </td>
-                <td><strong>{{ slip.month }}/{{ slip.year }}</strong></td>
-                <td>₹{{ "{:,.0f}".format(slip.basic_pay) }}</td>
-                <td>₹{{ "{:,.0f}".format(slip.hra) }}</td>
-                <td>₹{{ "{:,.0f}".format(slip.gross_pay) }}</td>
-                <td>₹{{ "{:,.0f}".format(slip.epf_deduction) }}</td>
-                <td>₹{{ "{:,.0f}".format(slip.tds) }}</td>
-                <td>₹{{ "{:,.0f}".format(slip.total_deductions) }}</td>
-                <td><strong style="color: var(--success);">₹{{ "{:,.0f}".format(slip.net_pay) }}</strong></td>
-                <td>
-                    <a href="{{ url_for('download_payslip', slip_id=slip.slip_id) }}" class="btn btn-primary btn-sm" target="_blank" title="View & Download Payslip">
-                        <i class="fas fa-download"></i> Download
-                    </a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">
-        <div class="empty-icon"><i class="fas fa-file-invoice-dollar"></i></div>
-        <h3>No Pay Slips Found</h3>
-        <p>Payslips will appear here after a payroll run is completed.</p>
+    <div class="page-actions">
+        <button type="button" class="btn btn-outline btn-sm" data-export-csv="payslipsTable" data-export-filename="payrollx-payslips.csv">
+            <i class="fas fa-file-csv" aria-hidden="true"></i> Export CSV
+        </button>
     </div>
     {% endif %}
 </div>
+
+<section class="data-card">
+    <div class="data-card-header">
+        <h2 id="payslips-table-title">Generated Payslips ({{ payslips|length }})</h2>
+        {% if payslips %}
+        <div class="card-toolbar">
+            <search>
+                <div class="search-input-wrap">
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <label for="payslipFilterInput" class="visually-hidden">Filter payslips</label>
+                    <input type="search" id="payslipFilterInput" class="search-input" placeholder="Search employee or period..." data-table-filter="payslipsTable">
+                </div>
+            </search>
+        </div>
+        {% endif %}
+    </div>
+
+    <p id="payslipsTable-filter-status" class="visually-hidden" role="status"></p>
+
+    {% if payslips %}
+    {% set months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+    <div tabindex="0" role="region" aria-labelledby="payslips-table-title" class="table-wrapper">
+        <table class="data-table" id="payslipsTable" data-sortable>
+            <caption class="visually-hidden">Employee monthly payslips with download options</caption>
+            <thead>
+                <tr>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="payslipsTable" command="--sort">Employee <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="payslipsTable" command="--sort">Period <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="payslipsTable" command="--sort">Basic Pay <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="payslipsTable" command="--sort">Gross Pay <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="payslipsTable" command="--sort">Deductions <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="payslipsTable" command="--sort">Net Pay <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col">Downloads</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for slip in payslips %}
+                <tr>
+                    <td data-value="{{ slip.employee.full_name }}">
+                        <div class="emp-info">
+                            <div class="emp-avatar" aria-hidden="true">{{ slip.employee.first_name[0] }}{{ slip.employee.last_name[0] }}</div>
+                            <div>
+                                <div class="emp-name">{{ slip.employee.full_name }}</div>
+                                <div class="emp-email">{{ slip.employee.department }}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td data-value="{{ '%04d-%02d'|format(slip.year, slip.month) }}">
+                        <strong>{{ months[slip.month - 1] if 1 <= slip.month <= 12 else slip.month }} {{ slip.year }}</strong>
+                    </td>
+                    <td class="num-cell" data-value="{{ slip.basic_pay }}">₹{{ "{:,.2f}".format(slip.basic_pay) }}</td>
+                    <td class="num-cell" data-value="{{ slip.gross_pay }}">₹{{ "{:,.2f}".format(slip.gross_pay) }}</td>
+                    <td class="num-cell text-danger" data-value="{{ slip.total_deductions }}">-₹{{ "{:,.2f}".format(slip.total_deductions) }}</td>
+                    <td class="num-cell text-success" data-value="{{ slip.net_pay }}"><strong>₹{{ "{:,.2f}".format(slip.net_pay) }}</strong></td>
+                    <td>
+                        <div class="card-toolbar">
+                            <a href="{{ url_for('download_payslip', slip_id=slip.slip_id) }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">
+                                <i class="fas fa-print" aria-hidden="true"></i> HTML
+                            </a>
+                            <a href="{{ url_for('download_payslip_pdf', slip_id=slip.slip_id) }}" class="btn btn-primary btn-sm">
+                                <i class="fas fa-file-pdf" aria-hidden="true"></i> PDF
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i></div>
+        <h3>No Payslips Available</h3>
+        <p>Payslips will be available once payroll is calculated and finalized for your workspace.</p>
+    </div>
+    {% endif %}
+</section>
 {% endblock %}

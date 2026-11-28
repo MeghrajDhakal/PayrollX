@@ -2,142 +2,211 @@
 {% block title %}People{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1>People</h1>
-    <p>Manage your organization's employee directory</p>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-users text-accent" aria-hidden="true"></i> People Directory</h1>
+        <p>Manage active employees, department assignments, bank coordinates, and annual CTC packages.</p>
+    </div>
+    <div class="page-actions">
+        <button type="button" class="btn btn-outline btn-sm" data-export-csv="peopleTable" data-export-filename="payrollx-employees.csv">
+            <i class="fas fa-file-csv" aria-hidden="true"></i>
+            <span>Export CSV</span>
+        </button>
+        <button type="button" class="btn btn-primary" command="show-modal" commandfor="addEmployeeModal">
+            <i class="fas fa-user-plus" aria-hidden="true"></i>
+            <span>Add Employee</span>
+        </button>
+    </div>
 </div>
 
-<div class="data-card">
+<section class="data-card">
     <div class="data-card-header">
-        <h2>All Employees ({{ employees|length }})</h2>
-        <button class="btn btn-primary btn-sm" data-modal="addEmployeeModal"><i class="fas fa-plus"></i> Add Employee</button>
-    </div>
-    {% if employees %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Employee</th>
-                <th>Department</th>
-                <th>Designation</th>
-                <th>Date of Joining</th>
-                <th>PAN</th>
-                <th>Bank</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for emp in employees %}
-            <tr>
-                <td>
-                    <div class="emp-info">
-                        <div class="emp-avatar">{{ emp.first_name[0] }}{{ emp.last_name[0] }}</div>
-                        <div>
-                            <div class="emp-name">{{ emp.full_name }}</div>
-                            <div class="emp-email">{{ emp.email }}</div>
-                        </div>
+        <h2 id="people-table-title">Employees ({{ employees|length }})</h2>
+        <div class="card-toolbar">
+            <search>
+                <div class="table-search-form">
+                    <div class="search-input-wrap">
+                        <i class="fas fa-search" aria-hidden="true"></i>
+                        <label for="peopleFilterInput" class="visually-hidden">Filter employees</label>
+                        <input
+                            type="search"
+                            id="peopleFilterInput"
+                            class="search-input"
+                            placeholder="Filter name, dept, PAN..."
+                            data-table-filter="peopleTable"
+                        >
                     </div>
-                </td>
-                <td>{{ emp.department }}</td>
-                <td>{{ emp.designation }}</td>
-                <td>{{ emp.date_of_joining }}</td>
-                <td>{{ emp.pan_number or '—' }}</td>
-                <td>{{ emp.bank_name or '—' }}</td>
-                <td><span class="status-badge {{ emp.status }}">{{ emp.status }}</span></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">
-        <div class="empty-icon"><i class="fas fa-users"></i></div>
-        <h3>No Employees Added</h3>
-        <p>Add your first employee to get started with payroll.</p>
+                </div>
+            </search>
+        </div>
+    </div>
+
+    <p id="peopleTable-filter-status" class="visually-hidden" role="status"></p>
+
+    {% if employees %}
+    <div tabindex="0" role="region" aria-labelledby="people-table-title" class="table-wrapper">
+        <table class="data-table" id="peopleTable" data-sortable>
+            <caption class="visually-hidden">Organization employee directory</caption>
+            <thead>
+                <tr>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="peopleTable" command="--sort">Employee <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="peopleTable" command="--sort">Department <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="peopleTable" command="--sort">Designation <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="peopleTable" command="--sort">PAN <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="peopleTable" command="--sort">Bank <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="peopleTable" command="--sort">Annual CTC <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="peopleTable" command="--sort">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for emp in employees %}
+                {% set current_ctc = emp.salary_structures[0].ctc_annual if emp.salary_structures else 0 %}
+                <tr>
+                    <td data-value="{{ emp.full_name }}">
+                        <div class="emp-info">
+                            <div class="emp-avatar" aria-hidden="true">{{ emp.first_name[0] }}{{ emp.last_name[0] }}</div>
+                            <div>
+                                <div class="emp-name">{{ emp.full_name }}</div>
+                                <div class="emp-email">{{ emp.email }}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>{{ emp.department }}</td>
+                    <td>{{ emp.designation }}</td>
+                    <td class="mono">{{ emp.pan_number or '—' }}</td>
+                    <td>{{ emp.bank_name or '—' }}{% if emp.bank_account %} &bull; {{ emp.bank_account[-4:] }}{% endif %}</td>
+                    <td class="num-cell" data-value="{{ current_ctc }}">
+                        <strong>₹{{ "{:,.0f}".format(current_ctc) if current_ctc else '—' }}</strong>
+                    </td>
+                    <td>
+                        {% if emp.status == 'active' %}
+                        <span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> Active</span>
+                        {% else %}
+                        <span class="status-badge inactive"><i class="fas fa-minus-circle" aria-hidden="true"></i> {{ emp.status|title }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if pagination and pagination.pages > 1 %}
+    <div class="dialog-footer" style="justify-content: space-between;">
+        <span class="text-secondary">Page {{ pagination.page }} of {{ pagination.pages }}</span>
+        <div class="page-actions">
+            {% if pagination.has_prev %}
+            <a href="{{ url_for('people', page=pagination.prev_num) }}" class="btn btn-outline btn-sm">Previous</a>
+            {% endif %}
+            {% if pagination.has_next %}
+            <a href="{{ url_for('people', page=pagination.next_num) }}" class="btn btn-outline btn-sm">Next</a>
+            {% endif %}
+        </div>
     </div>
     {% endif %}
-</div>
-
-<!-- ═══ ADD EMPLOYEE MODAL ═══ -->
-<div class="modal-overlay" id="addEmployeeModal">
-    <div class="modal">
-        <div class="modal-header">
-            <h2><i class="fas fa-user-plus" style="color: var(--primary); margin-right: 8px;"></i> Add New Employee</h2>
-            <button class="modal-close">&times;</button>
-        </div>
-        <form method="POST" action="{{ url_for('add_employee') }}">
-            <div class="modal-body">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>First Name</label>
-                        <input type="text" name="first_name" class="form-control" placeholder="First name" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Last Name</label>
-                        <input type="text" name="last_name" class="form-control" placeholder="Last name" required>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Email</label>
-                        <input type="email" name="email" class="form-control" placeholder="employee@company.com" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Phone</label>
-                        <input type="tel" name="phone" class="form-control" placeholder="9876543210">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Department</label>
-                        <select name="department" class="form-control">
-                            <option value="Engineering">Engineering</option>
-                            <option value="Design">Design</option>
-                            <option value="Marketing">Marketing</option>
-                            <option value="HR">HR</option>
-                            <option value="Finance">Finance</option>
-                            <option value="Operations">Operations</option>
-                            <option value="Sales">Sales</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Designation</label>
-                        <input type="text" name="designation" class="form-control" placeholder="Job title">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>PAN Number</label>
-                        <input type="text" name="pan_number" class="form-control" placeholder="ABCDE1234F" maxlength="10">
-                    </div>
-                    <div class="form-group">
-                        <label>Aadhaar Number</label>
-                        <input type="text" name="aadhaar_number" class="form-control" placeholder="123456789012" maxlength="12">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Bank Account</label>
-                        <input type="text" name="bank_account" class="form-control" placeholder="Account number">
-                    </div>
-                    <div class="form-group">
-                        <label>IFSC Code</label>
-                        <input type="text" name="bank_ifsc" class="form-control" placeholder="HDFC0001234">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Bank Name</label>
-                        <input type="text" name="bank_name" class="form-control" placeholder="HDFC Bank">
-                    </div>
-                    <div class="form-group">
-                        <label>Annual CTC (₹)</label>
-                        <input type="number" name="ctc" class="form-control" placeholder="600000" value="600000" min="100000">
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline modal-cancel">Cancel</button>
-                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Add Employee</button>
-            </div>
-        </form>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fas fa-users" aria-hidden="true"></i></div>
+        <h3>No Employees Added Yet</h3>
+        <p>Add your first employee to compute salary structures and run monthly payroll.</p>
+        <button type="button" class="btn btn-primary" command="show-modal" commandfor="addEmployeeModal">
+            <i class="fas fa-user-plus" aria-hidden="true"></i> Add First Employee
+        </button>
     </div>
-</div>
+    {% endif %}
+</section>
+
+<!-- Native Top-Layer Add Employee Dialog -->
+<dialog class="app-dialog" id="addEmployeeModal" closedby="any" aria-labelledby="addEmpTitle">
+    <div class="dialog-header">
+        <h1 id="addEmpTitle"><i class="fas fa-user-plus text-accent" aria-hidden="true"></i> Add Employee</h1>
+        <button type="button" class="dialog-close-btn" command="close" commandfor="addEmployeeModal" aria-label="Close Add Employee dialog">
+            <i class="fas fa-times" aria-hidden="true"></i>
+        </button>
+    </div>
+    <form method="POST" action="{{ url_for('add_employee') }}" id="addEmployeeForm">
+        <div class="modal-body-scroll">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_first_name">First Name <span aria-hidden="true">*</span></label>
+                    <input type="text" id="emp_first_name" name="first_name" class="form-control" autocomplete="given-name" required autofocus data-error="emp-fn-error" placeholder="e.g. Rohan">
+                    <span id="emp-fn-error" class="field-error"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> First name is required.</span>
+                </div>
+                <div class="form-group">
+                    <label for="emp_last_name">Last Name <span aria-hidden="true">*</span></label>
+                    <input type="text" id="emp_last_name" name="last_name" class="form-control" autocomplete="family-name" required data-error="emp-ln-error" placeholder="e.g. Verma">
+                    <span id="emp-ln-error" class="field-error"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Last name is required.</span>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_email">Work Email <span aria-hidden="true">*</span></label>
+                    <span class="field-hint">Format: name@company.com</span>
+                    <input type="email" id="emp_email" name="email" class="form-control" autocomplete="email" inputmode="email" required data-error="emp-email-error" placeholder="rohan@company.com">
+                    <span id="emp-email-error" class="field-error"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Enter a valid email address.</span>
+                </div>
+                <div class="form-group">
+                    <label for="emp_phone">Phone Number</label>
+                    <input type="tel" id="emp_phone" name="phone" class="form-control" autocomplete="tel" inputmode="tel" placeholder="+91 98XXXXXXXX">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_dept">Department <span aria-hidden="true">*</span></label>
+                    <input type="text" id="emp_dept" name="department" class="form-control" required data-error="emp-dept-error" placeholder="Engineering">
+                    <span id="emp-dept-error" class="field-error"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Department is required.</span>
+                </div>
+                <div class="form-group">
+                    <label for="emp_designation">Designation <span aria-hidden="true">*</span></label>
+                    <input type="text" id="emp_designation" name="designation" class="form-control" required data-error="emp-desig-error" placeholder="Senior Engineer">
+                    <span id="emp-desig-error" class="field-error"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Designation is required.</span>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_pan">PAN Number</label>
+                    <span class="field-hint">10-character PAN (e.g., ABCDE1234F)</span>
+                    <input type="text" id="emp_pan" name="pan_number" class="form-control mono" pattern="[A-Za-z]{5}[0-9]{4}[A-Za-z]" maxlength="10" placeholder="ABCDE1234F" data-error="emp-pan-error">
+                    <span id="emp-pan-error" class="field-error"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Must match 5 letters, 4 digits, 1 letter.</span>
+                </div>
+                <div class="form-group">
+                    <label for="emp_aadhaar">Aadhaar Number</label>
+                    <span class="field-hint">12-digit numeric UIDAI identifier</span>
+                    <input type="text" id="emp_aadhaar" name="aadhaar_number" class="form-control mono" inputmode="numeric" pattern="[0-9]{12}" maxlength="12" placeholder="123456789012" data-error="emp-aadhaar-error">
+                    <span id="emp-aadhaar-error" class="field-error"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Aadhaar must be 12 digits.</span>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_bank_name">Bank Name</label>
+                    <input type="text" id="emp_bank_name" name="bank_name" class="form-control" placeholder="HDFC Bank">
+                </div>
+                <div class="form-group">
+                    <label for="emp_bank_acc">Bank Account No.</label>
+                    <input type="text" id="emp_bank_acc" name="bank_account" class="form-control mono" inputmode="numeric" placeholder="50100012345678">
+                </div>
+                <div class="form-group">
+                    <label for="emp_bank_ifsc">IFSC Code</label>
+                    <input type="text" id="emp_bank_ifsc" name="bank_ifsc" class="form-control mono" pattern="[A-Za-z]{4}0[A-Za-z0-9]{6}" maxlength="11" placeholder="HDFC0001234" data-error="emp-ifsc-error">
+                    <span id="emp-ifsc-error" class="field-error"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Format: 4 letters, 0, then 6 characters.</span>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-block-end: 0;">
+                <label for="emp_ctc">Annual CTC (₹) <span aria-hidden="true">*</span></label>
+                <span class="field-hint">Salary structure splits 40% Basic, 20% HRA, 10% DA &amp; allowances automatically.</span>
+                <input type="number" id="emp_ctc" name="ctc" class="form-control tabular" min="10000" step="1000" required data-error="emp-ctc-error" placeholder="1200000">
+                <span id="emp-ctc-error" class="field-error"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Enter annual CTC (at least ₹10,000).</span>
+            </div>
+        </div>
+        <div class="dialog-footer">
+            <button type="button" class="btn btn-outline" command="close" commandfor="addEmployeeModal">Cancel</button>
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save" aria-hidden="true"></i> Save Employee
+            </button>
+        </div>
+    </form>
+</dialog>
 {% endblock %}

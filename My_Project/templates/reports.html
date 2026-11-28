@@ -2,104 +2,97 @@
 {% block title %}Reports{% endblock %}
 {% block content %}
 <div class="page-header">
-    <h1>Reports</h1>
-    <p>Generate and download payroll, statutory, and analytical reports</p>
+    <div class="page-header-copy">
+        <h1><i class="fas fa-chart-bar text-accent" aria-hidden="true"></i> Financial &amp; Statutory Reports</h1>
+        <p>Generate monthly payroll ledgers, compliance returns, NEFT bank files, and audit logs.</p>
+    </div>
 </div>
 
-<!-- ═══ REPORT CATEGORIES ═══ -->
-<div class="report-cards">
-    <a href="{{ url_for('report_payroll_summary') }}" class="report-card" style="color: inherit;">
-        <div class="report-icon" style="background: rgba(82,143,240,0.15); color: var(--primary);">
-            <i class="fas fa-file-invoice-dollar"></i>
-        </div>
-        <div>
-            <h3>Payroll Summary Report</h3>
-            <p>Monthly payroll summary with earnings & deductions breakdown</p>
-        </div>
+<div class="reports-grid">
+    <a href="{{ url_for('report_payroll_summary') }}" class="report-card">
+        <div class="report-icon stat-icon blue"><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i></div>
+        <h3>Payroll Summary Report</h3>
+        <p>Monthly employee-wise earnings, allowances, EPF, ESI, PT, TDS, and net pay.</p>
     </a>
-    <a href="{{ url_for('report_statutory') }}" class="report-card" style="color: inherit;">
-        <div class="report-icon" style="background: rgba(46,204,113,0.15); color: var(--success);">
-            <i class="fas fa-gavel"></i>
-        </div>
-        <div>
-            <h3>Statutory Compliance Report</h3>
-            <p>EPF, ESI, PT, TDS filing data for government portals</p>
-        </div>
+    <a href="{{ url_for('report_statutory') }}" class="report-card">
+        <div class="report-icon stat-icon green"><i class="fas fa-gavel" aria-hidden="true"></i></div>
+        <h3>Statutory Compliance Report</h3>
+        <p>EPF 12% caps, ESI applicability, Professional Tax, and Income Tax TDS figures.</p>
     </a>
-    <a href="{{ url_for('report_dept_cost') }}" class="report-card" style="color: inherit;">
-        <div class="report-icon" style="background: rgba(243,156,18,0.15); color: var(--warning);">
-            <i class="fas fa-chart-pie"></i>
-        </div>
-        <div>
-            <h3>Department Cost Analysis</h3>
-            <p>Department-wise payroll cost breakdown and headcount</p>
-        </div>
+    <a href="{{ url_for('report_dept_cost') }}" class="report-card">
+        <div class="report-icon stat-icon orange"><i class="fas fa-chart-pie" aria-hidden="true"></i></div>
+        <h3>Department Cost Analysis</h3>
+        <p>Department-level payroll disbursement breakdown, headcount, and cost shares.</p>
     </a>
-    <a href="{{ url_for('report_ytd') }}" class="report-card" style="color: inherit;">
-        <div class="report-icon" style="background: rgba(123,97,255,0.15); color: #7b61ff;">
-            <i class="fas fa-calendar-alt"></i>
-        </div>
-        <div>
-            <h3>Year-to-Date Summary</h3>
-            <p>Cumulative YTD earnings, deductions, and tax paid per employee</p>
-        </div>
+    <a href="{{ url_for('report_ytd') }}" class="report-card">
+        <div class="report-icon stat-icon purple"><i class="fas fa-calendar-alt" aria-hidden="true"></i></div>
+        <h3>Year-to-Date Summary</h3>
+        <p>Cumulative FY earnings, deductions, and TDS withheld per active employee.</p>
     </a>
-    <a href="{{ url_for('report_bank_transfer') }}" class="report-card" style="color: inherit;">
-        <div class="report-icon" style="background: rgba(231,76,60,0.15); color: var(--danger);">
-            <i class="fas fa-university"></i>
-        </div>
-        <div>
-            <h3>Bank Transfer File</h3>
-            <p>Generate NEFT/RTGS bank transfer file for salary disbursement</p>
-        </div>
+    <a href="{{ url_for('report_bank_transfer') }}" class="report-card">
+        <div class="report-icon stat-icon red"><i class="fas fa-university" aria-hidden="true"></i></div>
+        <h3>Bank Transfer File (NEFT)</h3>
+        <p>Salary disbursement instructions with account numbers, IFSC codes, and narrations.</p>
     </a>
-    <a href="{{ url_for('report_audit') }}" class="report-card" style="color: inherit;">
-        <div class="report-icon" style="background: rgba(52,152,219,0.15); color: var(--info);">
-            <i class="fas fa-history"></i>
-        </div>
-        <div>
-            <h3>Audit Trail Report</h3>
-            <p>Complete audit log of all payroll actions and changes</p>
-        </div>
+    <a href="{{ url_for('report_audit') }}" class="report-card">
+        <div class="report-icon stat-icon blue"><i class="fas fa-history" aria-hidden="true"></i></div>
+        <h3>Audit Trail Report</h3>
+        <p>Timestamped record of payroll executions, approvals, and workspace activity.</p>
     </a>
 </div>
 
-<!-- ═══ FINALIZED RUNS ═══ -->
-<div class="data-card">
+<section class="data-card">
     <div class="data-card-header">
-        <h2>Finalized Payroll Runs</h2>
+        <h2 id="finalized-runs-title">Completed &amp; Pending Payroll Cycles ({{ runs|length }})</h2>
+        {% if runs %}
+        <button type="button" class="btn btn-outline btn-sm" data-export-csv="reportOverviewTable" data-export-filename="payroll-cycles-overview.csv">
+            <i class="fas fa-file-csv" aria-hidden="true"></i> Export CSV
+        </button>
+        {% endif %}
     </div>
     {% if runs %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Period</th>
-                <th>Employees</th>
-                <th>Total Gross</th>
-                <th>Total Deductions</th>
-                <th>Net Disbursement</th>
-                <th>Finalized</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for run in runs %}
-            <tr>
-                <td><strong>{{ run.month }}/{{ run.year }}</strong></td>
-                <td>{{ run.employee_count }}</td>
-                <td>₹{{ "{:,.0f}".format(run.total_gross) }}</td>
-                <td>₹{{ "{:,.0f}".format(run.total_deductions) }}</td>
-                <td><strong style="color: var(--success);">₹{{ "{:,.0f}".format(run.total_net) }}</strong></td>
-                <td>{{ run.finalized_at.strftime('%d %b %Y') if run.finalized_at else '—' }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    {% set months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+    <div tabindex="0" role="region" aria-labelledby="finalized-runs-title" class="table-wrapper">
+        <table class="data-table" id="reportOverviewTable" data-sortable>
+            <caption class="visually-hidden">Summary of payroll runs ready for reporting</caption>
+            <thead>
+                <tr>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="reportOverviewTable" command="--sort">Period <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="reportOverviewTable" command="--sort">Staff <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="reportOverviewTable" command="--sort">Gross <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="number"><button type="button" class="sort-btn" commandfor="reportOverviewTable" command="--sort">Net Paid <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col" data-type="text"><button type="button" class="sort-btn" commandfor="reportOverviewTable" command="--sort">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
+                    <th scope="col">Summary Report</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in runs %}
+                <tr>
+                    <td data-value="{{ '%04d-%02d'|format(run.year, run.month) }}"><strong>{{ months[run.month - 1] if 1 <= run.month <= 12 else run.month }} {{ run.year }}</strong></td>
+                    <td class="num-cell" data-value="{{ run.employee_count }}">{{ run.employee_count }}</td>
+                    <td class="num-cell" data-value="{{ run.total_gross }}">₹{{ "{:,.0f}".format(run.total_gross) }}</td>
+                    <td class="num-cell text-success" data-value="{{ run.total_net }}"><strong>₹{{ "{:,.0f}".format(run.total_net) }}</strong></td>
+                    <td>
+                        {% if run.status == 'finalized' %}
+                        <span class="status-badge active"><i class="fas fa-check-circle" aria-hidden="true"></i> Finalized</span>
+                        {% else %}
+                        <span class="status-badge pending"><i class="fas fa-clock" aria-hidden="true"></i> Pending</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('report_payroll_summary', month=run.month, year=run.year) }}" class="btn btn-outline btn-sm">Open Ledger</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
     {% else %}
     <div class="empty-state">
-        <div class="empty-icon"><i class="fas fa-chart-bar"></i></div>
-        <h3>No Finalized Runs</h3>
-        <p>Reports will be available once a payroll run is finalized.</p>
+        <div class="empty-icon"><i class="fas fa-chart-bar" aria-hidden="true"></i></div>
+        <h3>No Payroll Cycles Processed</h3>
+        <p>Run payroll for a month to unlock statutory filings, YTD tables, and bank files.</p>
     </div>
     {% endif %}
-</div>
+</section>
 {% endblock %}
