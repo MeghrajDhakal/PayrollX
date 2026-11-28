@@ -1,16 +1,17 @@
 import os
 import sys
 from datetime import timedelta
+from typing import ClassVar
 
 # Detect environment
 PAYROLLX_ENV = os.environ.get('PAYROLLX_ENV', os.environ.get('FLASK_ENV', 'development')).lower()
 IS_PRODUCTION = PAYROLLX_ENV == 'production'
-IS_VERCEL = bool(os.environ.get('VERCEL', False))
+IS_VERCEL = bool(os.environ.get('VERCEL', ''))
 
 # Determine base directory (works for script, frozen exe, and Vercel)
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.environ.get('PAYROLLX_BASE_DIR', os.path.dirname(sys.executable))
-    BUNDLE_DIR = os.environ.get('PAYROLLX_BUNDLE_DIR', sys._MEIPASS)
+    BUNDLE_DIR = os.environ.get('PAYROLLX_BUNDLE_DIR', getattr(sys, '_MEIPASS', os.path.dirname(sys.executable)))
 elif IS_VERCEL:
     SRC_DIR = os.path.dirname(os.path.abspath(__file__))
     BASE_DIR = os.path.dirname(SRC_DIR)
@@ -65,15 +66,15 @@ class Config:
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or (
         os.environ.get('SECRET_KEY') if (IS_PRODUCTION or IS_VERCEL) else 'dev-insecure-jwt-key-only-for-local-testing-2026'
     )
-    JWT_EXPIRY_HOURS = int(os.environ.get('JWT_EXPIRY_HOURS', 8))
+    JWT_EXPIRY_HOURS = int(os.environ.get('JWT_EXPIRY_HOURS', '8'))
     JWT_ALGORITHM = 'HS256'
 
     # ── Session Cookie Hardening ──
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'true' if (IS_PRODUCTION or IS_VERCEL) else 'false').lower() == 'true'
     SESSION_COOKIE_SAMESITE = 'Lax'
-    PERMANENT_SESSION_LIFETIME = timedelta(hours=int(os.environ.get('SESSION_LIFETIME_HOURS', 8)))
-    SESSION_IDLE_TIMEOUT_MINUTES = int(os.environ.get('SESSION_IDLE_TIMEOUT_MINUTES', 30))
+    PERMANENT_SESSION_LIFETIME = timedelta(hours=int(os.environ.get('SESSION_LIFETIME_HOURS', '8')))
+    SESSION_IDLE_TIMEOUT_MINUTES = int(os.environ.get('SESSION_IDLE_TIMEOUT_MINUTES', '30'))
 
     # ── Database Configuration ──
     raw_db_url = os.environ.get('DATABASE_URL')
@@ -97,7 +98,7 @@ class Config:
     if SQLALCHEMY_DATABASE_URI and SQLALCHEMY_DATABASE_URI.startswith('postgres'):
         SQLALCHEMY_ENGINE_OPTIONS = {
             "pool_pre_ping": True,
-            "pool_recycle": int(os.environ.get('DB_POOL_RECYCLE', 300)),
+            "pool_recycle": int(os.environ.get('DB_POOL_RECYCLE', '300')),
             "connect_args": {"sslmode": os.environ.get('DB_SSL_MODE', "require")},
         }
     else:
@@ -107,11 +108,14 @@ class Config:
 
     # ── File Upload Bounds ──
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB max payload size
-    ALLOWED_UPLOAD_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
+    ALLOWED_UPLOAD_EXTENSIONS: ClassVar[set[str]] = {'pdf', 'png', 'jpg', 'jpeg'}
+
+    # ── Static Asset Caching ──
+    SEND_FILE_MAX_AGE_DEFAULT = 31536000
 
     # ── Redis Caching Configuration ──
     REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
     REDIS_ENABLED = os.environ.get('REDIS_ENABLED', 'true').lower() in ('true', '1', 'yes')
-    REDIS_MAX_CONNECTIONS = int(os.environ.get('REDIS_MAX_CONNECTIONS', 10 if (IS_VERCEL or IS_PRODUCTION) else 20))
-    REDIS_CONNECT_TIMEOUT = float(os.environ.get('REDIS_CONNECT_TIMEOUT', 0.2))  # 200ms
-    REDIS_SOCKET_TIMEOUT = float(os.environ.get('REDIS_SOCKET_TIMEOUT', 0.3))    # 300ms
+    REDIS_MAX_CONNECTIONS = int(os.environ.get('REDIS_MAX_CONNECTIONS', '10' if (IS_VERCEL or IS_PRODUCTION) else '20'))
+    REDIS_CONNECT_TIMEOUT = float(os.environ.get('REDIS_CONNECT_TIMEOUT', '0.2'))  # 200ms
+    REDIS_SOCKET_TIMEOUT = float(os.environ.get('REDIS_SOCKET_TIMEOUT', '0.3'))    # 300ms

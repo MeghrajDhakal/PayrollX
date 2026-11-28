@@ -1,11 +1,23 @@
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import UserMixin
-from datetime import datetime, date
-import bcrypt
-from sqlalchemy import event, CheckConstraint, UniqueConstraint, Index
-from sqlalchemy.engine import Engine
+import logging
+import sqlite3
+from datetime import UTC, date, datetime
 
+import bcrypt
+from flask_login import UserMixin
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import CheckConstraint, Index, UniqueConstraint, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Mapped, relationship
+from werkzeug.security import check_password_hash
+
+logger = logging.getLogger(__name__)
 db = SQLAlchemy()
+
+
+def _utc_now() -> datetime:
+    """Return current UTC timestamp as a naive datetime for SQLAlchemy DateTime columns."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 @event.listens_for(Engine, "connect")
@@ -16,8 +28,8 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
-        except Exception:
-            pass
+        except (sqlite3.Error, AttributeError, RuntimeError) as exc:
+            logger.debug("Skipped SQLite PRAGMA setup: %s", exc)
 
 
 class Organization(db.Model):
@@ -25,11 +37,11 @@ class Organization(db.Model):
     __tablename__ = 'organizations'
     org_id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), unique=True, nullable=False, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utc_now, nullable=False)
 
-    users = db.relationship('User', backref='organization', lazy=True, cascade='all, delete-orphan')
-    employees = db.relationship('Employee', backref='organization', lazy=True, cascade='all, delete-orphan')
-    payroll_runs = db.relationship('PayrollRun', backref='organization', lazy=True, cascade='all, delete-orphan')
+    users: Mapped[list["User"]] = relationship("User", back_populates="organization", lazy=True, cascade="all, delete-orphan")
+    employees: Mapped[list["Employee"]] = relationship("Employee", back_populates="organization", lazy=True, cascade="all, delete-orphan")
+    payroll_runs: Mapped[list["PayrollRun"]] = relationship("PayrollRun", back_populates="organization", lazy=True, cascade="all, delete-orphan")
 
 
 class User(UserMixin, db.Model):
@@ -40,9 +52,11 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), default='employee', nullable=False)  # employee, hr_admin, finance
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utc_now, nullable=False)
     org_id = db.Column(db.Integer, db.ForeignKey('organizations.org_id', ondelete='CASCADE'), nullable=True, index=True)
     session_token = db.Column(db.String(64), nullable=True, index=True)  # Server-side invalidation token
+
+    organization: Mapped["Organization | None"] = relationship("Organization", back_populates="users")
 
     __table_args__ = (
         CheckConstraint("role IN ('employee', 'hr_admin', 'finance')", name='ck_user_role'),
@@ -63,21 +77,20 @@ class User(UserMixin, db.Model):
         if self.password_hash.startswith(('$2b$', '$2a$', '$2y$')):
             try:
                 return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
-            except Exception:
+            except (ValueError, TypeError):
                 return False
         # Fallback to Werkzeug hash for legacy compatibility & transparent upgrade
         try:
-            from werkzeug.security import check_password_hash
             if check_password_hash(self.password_hash, password):
                 # Upgrade hash to bcrypt
                 self.set_password(password)
                 try:
                     db.session.commit()
-                except Exception:
+                except SQLAlchemyError:
                     db.session.rollback()
                 return True
-        except Exception:
-            pass
+        except (ValueError, TypeError) as exc:
+            logger.debug("Legacy password verification failed: %s", exc)
         return False
 
 
@@ -101,17 +114,18 @@ class Employee(db.Model):
     date_of_joining = db.Column(db.Date, default=date.today, nullable=False)
     date_of_exit = db.Column(db.Date, nullable=True)
     status = db.Column(db.String(20), default='active', nullable=False)  # active, inactive, exited
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utc_now, nullable=False)
 
     __table_args__ = (
         CheckConstraint("status IN ('active', 'inactive', 'exited')", name='ck_employee_status'),
         Index('ix_emp_org_user', 'org_id', 'user_id'),
     )
 
-    salary_structures = db.relationship('SalaryStructure', backref='employee', lazy=True, cascade='all, delete-orphan')
-    attendance_logs = db.relationship('AttendanceLog', backref='employee', lazy=True, cascade='all, delete-orphan')
-    payslips = db.relationship('Payslip', backref='employee', lazy=True, cascade='all, delete-orphan')
-    tax_declaration = db.relationship('TaxDeclaration', backref='employee', uselist=False, cascade='all, delete-orphan')
+    organization: Mapped["Organization"] = relationship("Organization", back_populates="employees")
+    salary_structures: Mapped[list["SalaryStructure"]] = relationship("SalaryStructure", back_populates="employee", lazy=True, cascade="all, delete-orphan")
+    attendance_logs: Mapped[list["AttendanceLog"]] = relationship("AttendanceLog", back_populates="employee", lazy=True, cascade="all, delete-orphan")
+    payslips: Mapped[list["Payslip"]] = relationship("Payslip", back_populates="employee", lazy=True, cascade="all, delete-orphan")
+    tax_declaration: Mapped["TaxDeclaration | None"] = relationship("TaxDeclaration", back_populates="employee", uselist=False, cascade="all, delete-orphan")
 
     @property
     def full_name(self):
@@ -153,6 +167,8 @@ class SalaryStructure(db.Model):
     effective_to = db.Column(db.Date, nullable=True)
     is_current = db.Column(db.Boolean, default=True, nullable=False)
 
+    employee: Mapped["Employee"] = relationship("Employee", back_populates="salary_structures")
+
     __table_args__ = (
         CheckConstraint('ctc_annual >= 0', name='ck_salary_ctc_nonneg'),
         CheckConstraint('basic_pay >= 0', name='ck_salary_basic_nonneg'),
@@ -178,6 +194,8 @@ class AttendanceLog(db.Model):
     days_absent = db.Column(db.Integer, default=0, nullable=False)
     lop_days = db.Column(db.Integer, default=0, nullable=False)
     overtime_hours = db.Column(db.Float, default=0, nullable=False)
+
+    employee: Mapped["Employee"] = relationship("Employee", back_populates="attendance_logs")
 
     __table_args__ = (
         UniqueConstraint('org_id', 'emp_id', 'month', 'year', name='uq_attendance_org_emp_period'),
@@ -221,7 +239,7 @@ class PayrollRun(db.Model):
     total_deductions = db.Column(db.Float, default=0, nullable=False)
     total_net = db.Column(db.Float, default=0, nullable=False)
     employee_count = db.Column(db.Integer, default=0, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utc_now, nullable=False)
     finalized_at = db.Column(db.DateTime, nullable=True)
 
     __table_args__ = (
@@ -235,7 +253,8 @@ class PayrollRun(db.Model):
         CheckConstraint("status IN ('draft', 'pending', 'approved', 'finalized')", name='ck_payroll_status'),
     )
 
-    payslips = db.relationship('Payslip', backref='payroll_run', lazy=True, cascade='all, delete-orphan')
+    organization: Mapped["Organization"] = relationship("Organization", back_populates="payroll_runs")
+    payslips: Mapped[list["Payslip"]] = relationship("Payslip", back_populates="payroll_run", lazy=True, cascade="all, delete-orphan")
 
 
 class Payslip(db.Model):
@@ -261,7 +280,7 @@ class Payslip(db.Model):
     lop_deduction = db.Column(db.Float, default=0, nullable=False)
     total_deductions = db.Column(db.Float, default=0, nullable=False)
     net_pay = db.Column(db.Float, default=0, nullable=False)
-    generated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    generated_at = db.Column(db.DateTime, default=_utc_now, nullable=False)
 
     __table_args__ = (
         UniqueConstraint('org_id', 'emp_id', 'month', 'year', name='uq_payslip_org_emp_period'),
@@ -271,6 +290,9 @@ class Payslip(db.Model):
         CheckConstraint('total_deductions >= 0', name='ck_payslip_deductions_nonneg'),
         CheckConstraint('net_pay >= 0', name='ck_payslip_net_nonneg'),
     )
+
+    employee: Mapped["Employee"] = relationship("Employee", back_populates="payslips")
+    payroll_run: Mapped["PayrollRun"] = relationship("PayrollRun", back_populates="payslips")
 
 
 class TaxDeclaration(db.Model):
@@ -291,6 +313,8 @@ class TaxDeclaration(db.Model):
     status = db.Column(db.String(20), default='draft', nullable=False)  # draft, submitted, verified
     submitted_at = db.Column(db.DateTime, nullable=True)
 
+    employee: Mapped["Employee"] = relationship("Employee", back_populates="tax_declaration")
+
     __table_args__ = (
         UniqueConstraint('org_id', 'emp_id', 'financial_year', name='uq_tax_decl_org_emp_fy'),
         CheckConstraint('section_80c >= 0', name='ck_tax_80c_nonneg'),
@@ -309,7 +333,7 @@ class Reimbursement(db.Model):
     description = db.Column(db.String(300))
     receipt_date = db.Column(db.Date, nullable=False)
     status = db.Column(db.String(20), default='pending', nullable=False)  # pending, approved, rejected, paid
-    submitted_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    submitted_at = db.Column(db.DateTime, default=_utc_now, nullable=False)
     approved_at = db.Column(db.DateTime, nullable=True)
 
     __table_args__ = (
@@ -329,7 +353,7 @@ class AuditLog(db.Model):
     entity_id = db.Column(db.Integer)
     details = db.Column(db.Text)
     ip_address = db.Column(db.String(45))
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    timestamp = db.Column(db.DateTime, default=_utc_now, nullable=False, index=True)
 
 
 class IdempotencyRecord(db.Model):
@@ -342,7 +366,7 @@ class IdempotencyRecord(db.Model):
     request_hash = db.Column(db.String(64), nullable=False)
     response_code = db.Column(db.Integer, nullable=False)
     response_body = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utc_now, nullable=False)
 
     __table_args__ = (
         UniqueConstraint('org_id', 'key', name='uq_idempotency_org_key'),
@@ -354,5 +378,5 @@ class RevokedToken(db.Model):
     __tablename__ = 'revoked_tokens'
     id = db.Column(db.Integer, primary_key=True)
     jti = db.Column(db.String(64), unique=True, index=True, nullable=False)
-    revoked_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    revoked_at = db.Column(db.DateTime, default=_utc_now, nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)

@@ -7,7 +7,16 @@
     <title>Payslip — {{ emp.full_name }} — {{ month_name }} {{ slip.year }}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" data-async-style>
+    <script>
+        document.querySelectorAll('link[data-async-style]').forEach(function (l) {
+            if (l.sheet) l.media = 'all';
+            else l.addEventListener('load', function () { l.media = 'all'; }, { once: true });
+        });
+    </script>
+    <noscript>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+    </noscript>
     <style>
         :where(html, body, main, header, section, div, dl, dt, dd, h1, h2, h3, p, button, a) {
             box-sizing: border-box;
@@ -274,6 +283,6 @@
         </footer>
     </main>
 
-    <script defer src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script defer fetchpriority="high" src="{{ url_for('static', filename='js/main.js', v=asset_v) }}"></script>
 </body>
 </html>

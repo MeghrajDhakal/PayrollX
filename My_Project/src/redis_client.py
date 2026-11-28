@@ -3,36 +3,48 @@ PayrollX — Resilient Redis Caching Client
 Provides connection pooling, strict latency timeouts, custom serialization,
 TTL jitter, and fail-open resilience against Redis outages.
 """
-import os
 import json
-import uuid
-import random
 import logging
+import os
+import random
+import time
+import uuid
+from datetime import date, datetime
 from decimal import Decimal
-from datetime import datetime, date
-from typing import Any, Optional, Union
+from typing import Any, cast
 
 import redis
 
 logger = logging.getLogger("payrollx.cache")
 
 # Global pool and client singletons
-_pool: Optional[redis.ConnectionPool] = None
-_client: Optional[redis.Redis] = None
-_override_client: Optional[Any] = None
+_pool: redis.ConnectionPool | None = None
+_client: redis.Redis | None = None
+_override_client: Any | None = None
+_circuit_open_until: float = 0.0
+_CIRCUIT_COOLDOWN_SECONDS: float = 30.0
+_REDIS_NETWORK_ERRORS = (redis.ConnectionError, redis.TimeoutError, redis.RedisError)
+_FAIL_OPEN_ERRORS = (ValueError, TypeError, OSError, RuntimeError, ArithmeticError, AttributeError)
+
+
+def _trip_circuit_if_real() -> None:
+    """Open short circuit-breaker cooldown after a real Redis network failure."""
+    global _circuit_open_until
+    if _override_client is None:
+        _circuit_open_until = time.monotonic() + _CIRCUIT_COOLDOWN_SECONDS
 
 
 class SafeJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder supporting datetime, date, Decimal, and UUID objects."""
 
-    def default(self, obj: Any) -> Any:
-        if isinstance(obj, (datetime, date)):
-            return obj.isoformat()
-        elif isinstance(obj, Decimal):
-            return float(obj)
-        elif isinstance(obj, uuid.UUID):
-            return str(obj)
-        return super().default(obj)
+    def default(self, o: Any) -> Any:
+        if isinstance(o, datetime | date):
+            return o.isoformat()
+        elif isinstance(o, Decimal):
+            return float(o)
+        elif isinstance(o, uuid.UUID):
+            return str(o)
+        return super().default(o)
 
 
 def serialize(data: Any) -> str:
@@ -40,7 +52,7 @@ def serialize(data: Any) -> str:
     return json.dumps(data, cls=SafeJSONEncoder)
 
 
-def deserialize(raw: Optional[Union[str, bytes]]) -> Any:
+def deserialize(raw: str | bytes | None) -> Any:
     """Deserialize a JSON string or bytes into native Python objects."""
     if raw is None:
         return None
@@ -60,17 +72,25 @@ def calculate_jittered_ttl(base_ttl: int, jitter_pct: float = 0.10) -> int:
     return max(1, int(base_ttl + jitter))
 
 
-def get_redis_client() -> Optional[redis.Redis]:
+def get_redis_client() -> redis.Redis | None:
     """
     Return a pooled Redis client singleton with explicit connect/read/write timeouts.
     If Redis is disabled or fails to initialize, returns None (fail-open).
     """
-    global _pool, _client, _override_client
+    global _pool, _client
     if _override_client is not None:
         return _override_client
 
+    if _circuit_open_until and time.monotonic() < _circuit_open_until:
+        return None
+
     redis_enabled = os.environ.get("REDIS_ENABLED", "true").lower() in ("true", "1", "yes")
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    raw_url = os.environ.get("REDIS_URL")
+    is_serverless = bool(os.environ.get("VERCEL") == "1" or os.environ.get("VERCEL_ENV") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+    # Avoid dialing localhost:6379 in serverless deployments unless REDIS_URL is configured
+    if is_serverless and not raw_url:
+        return None
+    redis_url = raw_url or "redis://localhost:6379/0"
 
     if not redis_enabled or not redis_url:
         return None
@@ -79,11 +99,10 @@ def get_redis_client() -> Optional[redis.Redis]:
         return _client
 
     try:
-        is_serverless = bool(os.environ.get("VERCEL") == "1" or os.environ.get("VERCEL_ENV") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
         default_max_connections = 10 if is_serverless else 20
-        max_connections = int(os.environ.get("REDIS_MAX_CONNECTIONS", default_max_connections))
-        connect_timeout = float(os.environ.get("REDIS_CONNECT_TIMEOUT", 0.2))  # 200ms
-        socket_timeout = float(os.environ.get("REDIS_SOCKET_TIMEOUT", 0.3))    # 300ms
+        max_connections = int(os.environ.get("REDIS_MAX_CONNECTIONS", str(default_max_connections)))
+        connect_timeout = float(os.environ.get("REDIS_CONNECT_TIMEOUT", "0.2"))  # 200ms
+        socket_timeout = float(os.environ.get("REDIS_SOCKET_TIMEOUT", "0.3"))    # 300ms
 
         _pool = redis.ConnectionPool.from_url(
             redis_url,
@@ -95,7 +114,7 @@ def get_redis_client() -> Optional[redis.Redis]:
         )
         _client = redis.Redis(connection_pool=_pool)
         return _client
-    except Exception as exc:
+    except (*_REDIS_NETWORK_ERRORS, *_FAIL_OPEN_ERRORS) as exc:
         logger.warning(
             "Redis client initialization failed; continuing in fail-open mode",
             extra={"error": str(exc)}
@@ -103,31 +122,33 @@ def get_redis_client() -> Optional[redis.Redis]:
         return None
 
 
-def set_redis_client_override(client: Optional[Any]) -> None:
+def set_redis_client_override(client: Any | None) -> None:
     """Set an override client instance for testing or mocking."""
-    global _override_client
+    global _override_client, _circuit_open_until
     _override_client = client
+    _circuit_open_until = 0.0
 
 
 def reset_redis_client() -> None:
     """Reset the singleton client and pool connections."""
-    global _pool, _client, _override_client
+    global _pool, _client, _override_client, _circuit_open_until
     _override_client = None
+    _circuit_open_until = 0.0
     if _client is not None:
         try:
             _client.close()
-        except Exception:
-            pass
+        except (*_REDIS_NETWORK_ERRORS, *_FAIL_OPEN_ERRORS) as exc:
+            logger.debug("Ignored Redis client close error during reset: %s", exc)
         _client = None
     if _pool is not None:
         try:
             _pool.disconnect()
-        except Exception:
-            pass
+        except (*_REDIS_NETWORK_ERRORS, *_FAIL_OPEN_ERRORS) as exc:
+            logger.debug("Ignored Redis pool disconnect error during reset: %s", exc)
         _pool = None
 
 
-def cache_get(key: str) -> Optional[Any]:
+def cache_get(key: str) -> Any | None:
     """
     Fetch and deserialize a key from Redis.
     Fails open by returning None on Redis error or connection timeout.
@@ -137,17 +158,18 @@ def cache_get(key: str) -> Optional[Any]:
         return None
 
     try:
-        raw = client.get(key)
+        raw = cast("str | bytes | None", client.get(key))
         if raw is None:
             return None
         return deserialize(raw)
-    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as exc:
+    except _REDIS_NETWORK_ERRORS as exc:
+        _trip_circuit_if_real()
         logger.warning(
             "Redis cache_get failed; falling back to primary database",
             extra={"key": key, "error_type": type(exc).__name__, "error": str(exc)}
         )
         return None
-    except Exception as exc:
+    except _FAIL_OPEN_ERRORS as exc:
         logger.warning(
             "Unexpected error in cache_get; falling back to primary database",
             extra={"key": key, "error_type": type(exc).__name__, "error": str(exc)}
@@ -155,7 +177,7 @@ def cache_get(key: str) -> Optional[Any]:
         return None
 
 
-def cache_set(key: str, value: Any, ttl: Optional[int] = None, jitter_pct: float = 0.10) -> bool:
+def cache_set(key: str, value: Any, ttl: int | None = None, jitter_pct: float = 0.10) -> bool:
     """
     Serialize and store a value in Redis with optional jittered TTL.
     Fails open by returning False without raising exceptions on failure.
@@ -172,13 +194,14 @@ def cache_set(key: str, value: Any, ttl: Optional[int] = None, jitter_pct: float
         else:
             client.set(key, payload)
         return True
-    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as exc:
+    except _REDIS_NETWORK_ERRORS as exc:
+        _trip_circuit_if_real()
         logger.warning(
             "Redis cache_set failed; cache population skipped",
             extra={"key": key, "error_type": type(exc).__name__, "error": str(exc)}
         )
         return False
-    except Exception as exc:
+    except _FAIL_OPEN_ERRORS as exc:
         logger.warning(
             "Unexpected error in cache_set; cache population skipped",
             extra={"key": key, "error_type": type(exc).__name__, "error": str(exc)}
@@ -198,13 +221,13 @@ def cache_delete(key: str) -> bool:
     try:
         client.delete(key)
         return True
-    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as exc:
+    except _REDIS_NETWORK_ERRORS as exc:
         logger.warning(
             "Redis cache_delete failed",
             extra={"key": key, "error_type": type(exc).__name__, "error": str(exc)}
         )
         return False
-    except Exception as exc:
+    except _FAIL_OPEN_ERRORS as exc:
         logger.warning(
             "Unexpected error in cache_delete",
             extra={"key": key, "error_type": type(exc).__name__, "error": str(exc)}
@@ -226,14 +249,14 @@ def cache_delete_many(*keys: str) -> int:
         return 0
 
     try:
-        return client.delete(*valid_keys)
-    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as exc:
+        return cast("int", client.delete(*valid_keys))
+    except _REDIS_NETWORK_ERRORS as exc:
         logger.warning(
             "Redis cache_delete_many failed",
             extra={"keys_count": len(valid_keys), "error_type": type(exc).__name__, "error": str(exc)}
         )
         return 0
-    except Exception as exc:
+    except _FAIL_OPEN_ERRORS as exc:
         logger.warning(
             "Unexpected error in cache_delete_many",
             extra={"keys_count": len(valid_keys), "error_type": type(exc).__name__, "error": str(exc)}
@@ -253,19 +276,19 @@ def get_tenant_roster_version(org_id: int) -> int:
 
     key = f"payrollx:org:{org_id}:roster_version"
     try:
-        val = client.get(key)
+        val = cast("str | bytes | int | None", client.get(key))
         if val is None:
             # Initialize version to 1 with 7-day TTL
             client.set(key, "1", ex=604800)
             return 1
         return int(val)
-    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as exc:
+    except _REDIS_NETWORK_ERRORS as exc:
         logger.warning(
             "Failed to retrieve tenant roster version from Redis; defaulting to 1",
             extra={"org_id": org_id, "error": str(exc)}
         )
         return 1
-    except Exception as exc:
+    except _FAIL_OPEN_ERRORS as exc:
         logger.warning(
             "Unexpected error retrieving tenant roster version; defaulting to 1",
             extra={"org_id": org_id, "error": str(exc)}
@@ -284,16 +307,16 @@ def bump_tenant_roster_version(org_id: int) -> int:
 
     key = f"payrollx:org:{org_id}:roster_version"
     try:
-        new_ver = client.incr(key)
+        new_ver = cast("int | str | bytes", client.incr(key))
         client.expire(key, 604800)  # Keep key alive for 7 days
         return int(new_ver)
-    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as exc:
+    except _REDIS_NETWORK_ERRORS as exc:
         logger.warning(
             "Failed to bump tenant roster version in Redis",
             extra={"org_id": org_id, "error": str(exc)}
         )
         return 1
-    except Exception as exc:
+    except _FAIL_OPEN_ERRORS as exc:
         logger.warning(
             "Unexpected error bumping tenant roster version",
             extra={"org_id": org_id, "error": str(exc)}
@@ -308,5 +331,6 @@ def cache_ping() -> bool:
         return False
     try:
         return bool(client.ping())
-    except Exception:
+    except (*_REDIS_NETWORK_ERRORS, *_FAIL_OPEN_ERRORS):
+        _trip_circuit_if_real()
         return False

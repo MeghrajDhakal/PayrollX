@@ -1,0 +1,19 @@
+{
+  "include": [
+    "My_Project",
+    "api",
+    "scripts"
+  ],
+  "exclude": [
+    ".venv",
+    "**/__pycache__"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": [
+    "My_Project/src",
+    "My_Project"
+  ],
+  "reportCallIssue": "none",
+  "reportGeneralTypeIssues": "warning"
+}

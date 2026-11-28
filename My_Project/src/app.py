@@ -1,58 +1,111 @@
+import gzip
+import io
 import os
-import uuid
-import time
 import secrets
-from datetime import datetime, date, timedelta
+import time
+import uuid
+from datetime import UTC, date, datetime, timedelta
 from functools import wraps
 
-import io
-
-from flask import (
-    Flask, render_template, request, redirect, url_for,
-    flash, jsonify, make_response, abort, g, session, send_file
-)
-from flask_login import (
-    LoginManager, login_user, logout_user, login_required, current_user
-)
-from flask_migrate import Migrate
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from sqlalchemy import text
-from sqlalchemy.orm import joinedload
-from pydantic import ValidationError
-
-from config import Config, BUNDLE_DIR
-from constants import MONTH_NAMES, get_month_name
-from models import (
-    db, User, Employee, Organization, SalaryStructure, AttendanceLog,
-    StatutoryRate, PayrollRun, Payslip, TaxDeclaration, Reimbursement,
-    AuditLog, RevokedToken
-)
-from middleware import (
-    generate_jwt, jwt_or_session_required,
-    org_admin_required, register_audit_interceptor,
-    generate_payslip_pdf
-)
-from schemas import (
-    LoginSchema, RegisterSchema, EmployeeCreateSchema,
-    RunPayrollSchema, AttendanceUpdateSchema
-)
-from logging_config import configure_logging
-from idempotency import get_idempotency_key, get_idempotent_response, save_idempotent_response, compute_request_hash
-from redis_client import cache_get, cache_set, cache_ping
 from cache_decorators import (
+    build_dashboard_summary_cache_key,
     build_employee_cache_key,
     build_roster_cache_key,
-    build_dashboard_summary_cache_key,
     invalidate_tenant_employee_cache,
-    invalidate_tenant_payroll_cache
+    invalidate_tenant_payroll_cache,
 )
+from config import BUNDLE_DIR, IS_VERCEL, Config
+from constants import MONTH_NAMES, get_month_name
+from flask import (
+    Flask,
+    abort,
+    flash,
+    g,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    session,
+    url_for,
+)
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_login import (
+    LoginManager,
+    current_user,
+    login_required,
+    login_user,
+    logout_user,
+)
+from flask_migrate import Migrate
+from idempotency import (
+    compute_request_hash,
+    get_idempotency_key,
+    get_idempotent_response,
+    save_idempotent_response,
+)
+from logging_config import configure_logging
+from middleware import (
+    generate_jwt,
+    generate_payslip_pdf,
+    jwt_or_session_required,
+    org_admin_required,
+    register_audit_interceptor,
+)
+from models import (
+    AttendanceLog,
+    AuditLog,
+    Employee,
+    Organization,
+    PayrollRun,
+    Payslip,
+    Reimbursement,
+    RevokedToken,
+    SalaryStructure,
+    StatutoryRate,
+    TaxDeclaration,
+    User,
+    db,
+)
+from pydantic import ValidationError
+from redis_client import cache_get, cache_ping, cache_set
+from schemas import (
+    AttendanceUpdateSchema,
+    EmployeeCreateSchema,
+    LoginSchema,
+    RegisterSchema,
+    RunPayrollSchema,
+)
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import joinedload, selectinload
+
+
+# ── Static Asset Versioning (computed once at startup for immutable browser caching) ──
+def _compute_asset_version() -> str:
+    try:
+        css_path = os.path.join(BUNDLE_DIR, 'static', 'css', 'style.css')
+        js_path = os.path.join(BUNDLE_DIR, 'static', 'js', 'main.js')
+        mtimes = [int(os.path.getmtime(p)) for p in (css_path, js_path) if os.path.exists(p)]
+        return str(max(mtimes)) if mtimes else '1'
+    except OSError:
+        return '1'
+
+
+ASSET_VERSION = _compute_asset_version()
 
 # ── Flask Application Setup ──
 app = Flask(__name__,
             template_folder=os.path.join(BUNDLE_DIR, 'templates'),
             static_folder=os.path.join(BUNDLE_DIR, 'static'))
 app.config.from_object(Config)
+
+
+@app.context_processor
+def inject_asset_version():
+    return {'asset_v': ASSET_VERSION}
 
 # Configure structured JSON logging
 configure_logging(app)
@@ -88,8 +141,12 @@ def handle_before_request():
     g.request_id = request.headers.get('X-Request-ID') or str(uuid.uuid4())
     g.start_time = time.time()
 
+    # Never hit database or mutate session cookies for static assets or health pings
+    if request.endpoint == 'static' or request.path.startswith('/static/') or request.path == '/health':
+        return None
+
     # Server-side idle session check for cookie sessions
-    if current_user and current_user.is_authenticated:
+    if current_user.is_authenticated:
         last_active = session.get('last_active')
         idle_timeout_min = app.config.get('SESSION_IDLE_TIMEOUT_MINUTES', 30)
         now_ts = time.time()
@@ -116,6 +173,35 @@ def handle_after_request(response):
     if app.config.get('SESSION_COOKIE_SECURE'):
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
 
+    if request.endpoint == 'static' or request.path.startswith('/static/'):
+        response.headers['Cache-Control'] = (
+            'public, max-age=31536000, immutable' if 'v' in request.args else 'public, max-age=86400'
+        )
+
+    # Compress 200 text/static assets on local/WSGI hosts when client accepts gzip
+    if (
+        not app.config.get('TESTING')
+        and not IS_VERCEL
+        and response.status_code == 200
+        and (not response.direct_passthrough or request.endpoint == 'static')
+        and (response.content_length is None or response.content_length <= 2 * 1024 * 1024)
+        and 'Content-Encoding' not in response.headers
+        and response.mimetype in ('text/html', 'text/css', 'application/javascript', 'text/javascript', 'application/json', 'image/svg+xml')
+        and 'gzip' in request.headers.get('Accept-Encoding', '').lower()
+    ):
+        response.direct_passthrough = False
+        raw_body = response.get_data()
+        if len(raw_body) > 1024:
+            compressed = gzip.compress(raw_body, compresslevel=5)
+            response.set_data(compressed)
+            response.headers['Content-Encoding'] = 'gzip'
+            response.headers['Content-Length'] = str(len(compressed))
+            etag = response.headers.get('ETag')
+            if etag and not etag.startswith('W/'):
+                response.headers['ETag'] = f'"{etag.strip(chr(34))}-gzip"'
+            vary = response.headers.get('Vary')
+            response.headers['Vary'] = f"{vary}, Accept-Encoding" if vary and 'Accept-Encoding' not in vary else (vary or 'Accept-Encoding')
+
     # Compute duration for logging
     if hasattr(g, 'start_time'):
         g.latency_ms = round((time.time() - g.start_time) * 1000, 2)
@@ -130,7 +216,7 @@ def handle_after_request(response):
 def load_user(user_id):
     """Load user and enforce server-side session token validation."""
     try:
-        user = db.session.get(User, int(user_id))
+        user = db.session.get(User, int(user_id), options=[joinedload(User.organization)])
         if not user:
             return None
         # Verify server-side session token to prevent replaying invalidated cookies
@@ -138,7 +224,7 @@ def load_user(user_id):
         if not expected_token or not user.session_token or user.session_token != expected_token:
             return None
         return user
-    except Exception:
+    except (ValueError, TypeError, SQLAlchemyError):
         return None
 
 
@@ -186,7 +272,7 @@ def not_found_handler(e):
 @app.errorhandler(Exception)
 def unhandled_exception_handler(e):
     req_id = getattr(g, 'request_id', 'unknown')
-    app.logger.exception(f"Unhandled exception on {request.method} {request.path}: {str(e)}")
+    app.logger.exception("Unhandled exception on %s %s", request.method, request.path)
     db.session.rollback()
 
     if request.is_json or request.path.startswith('/api/'):
@@ -379,6 +465,11 @@ def generate_payslip_for_employee(emp, run, month, year):
     return payslip
 
 
+def _utc_now() -> datetime:
+    """Return current UTC timestamp as a naive datetime for SQLAlchemy DateTime columns."""
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 # ────────────────────────────────────────────
 # HEALTH CHECK ENDPOINT
 # ────────────────────────────────────────────
@@ -392,11 +483,11 @@ def health_check():
             'status': 'healthy',
             'database': 'connected',
             'redis': redis_status,
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'timestamp': _utc_now().isoformat() + 'Z',
             'request_id': getattr(g, 'request_id', None)
         }), 200
-    except Exception as e:
-        app.logger.error(f"Health check failed database connectivity: {str(e)}")
+    except (SQLAlchemyError, RuntimeError, OSError) as e:
+        app.logger.error("Health check failed database connectivity: %s", e)
         return jsonify({
             'status': 'unhealthy',
             'database': 'disconnected',
@@ -422,7 +513,7 @@ def api_auth_token():
     """Issue a signed JWT access token with rate limiting and Pydantic validation."""
     payload = request.get_json(silent=True) or {}
     try:
-        validated = LoginSchema(**payload)
+        validated = LoginSchema.model_validate(payload)
     except ValidationError as ve:
         return jsonify({'error': 'Invalid request payload', 'details': ve.errors()}), 400
 
@@ -465,7 +556,7 @@ def api_auth_revoke():
         jti = g.jwt_claims.get('jti')
         exp = g.jwt_claims.get('exp')
         if jti:
-            expires_at = datetime.utcfromtimestamp(exp) if exp else datetime.utcnow() + timedelta(hours=8)
+            expires_at = datetime.fromtimestamp(exp, UTC).replace(tzinfo=None) if exp else _utc_now() + timedelta(hours=8)
             revoked = RevokedToken(jti=jti, expires_at=expires_at)
             db.session.add(revoked)
 
@@ -620,7 +711,7 @@ def api_run_payroll():
     user = g.current_api_user
     payload = request.get_json(silent=True) or {}
     try:
-        validated = RunPayrollSchema(**payload)
+        validated = RunPayrollSchema.model_validate(payload)
     except ValidationError as ve:
         return jsonify({'error': 'Invalid input', 'details': ve.errors()}), 422
 
@@ -696,9 +787,9 @@ def api_run_payroll():
 
         return jsonify({'message': 'Payroll run executed successfully', 'data': resp_data}), 200
 
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        app.logger.exception(f"Error in api_run_payroll: {str(e)}")
+        app.logger.exception("Error in api_run_payroll")
         return jsonify({'error': 'Failed to execute payroll run'}), 500
 
 
@@ -723,7 +814,7 @@ def login():
     if request.method == 'POST':
         form_data = {k: v for k, v in request.form.items()}
         try:
-            validated = LoginSchema(**form_data)
+            validated = LoginSchema.model_validate(form_data)
         except ValidationError as ve:
             flash(f"Validation error: {ve.errors()[0]['msg']}", 'error')
             return render_template('login.html'), 400
@@ -800,7 +891,7 @@ def register():
             raw_payload = {k: v for k, v in request.form.items()}
 
         try:
-            validated = RegisterSchema(**raw_payload)
+            validated = RegisterSchema.model_validate(raw_payload)
         except ValidationError as ve:
             error_msg = f"Validation error: {ve.errors()[0]['msg']}"
             if is_api_request:
@@ -858,7 +949,7 @@ def register():
             return redirect(url_for('login'))
         except Exception as e:
             db.session.rollback()
-            app.logger.exception(f"Registration failure: {str(e)}")
+            app.logger.exception("Registration failure")
             msg = 'Registration failed. Please try again.'
             if is_api_request:
                 return jsonify({"error": msg, "details": str(e)}), 500
@@ -876,8 +967,9 @@ def logout():
         current_user.session_token = None
         try:
             db.session.commit()
-        except Exception:
+        except SQLAlchemyError as exc:
             db.session.rollback()
+            app.logger.warning("Failed to clear session token on logout: %s", exc)
 
     session.clear()
     logout_user()
@@ -899,6 +991,9 @@ def dashboard():
         return render_template('dashboard.html', employee=emp, recent_slips=recent_slips, role='employee')
 
     org_id = current_user.org_id
+    employees = Employee.query.filter_by(status='active', org_id=org_id).all()
+    recent_runs = PayrollRun.query.filter_by(org_id=org_id).order_by(PayrollRun.created_at.desc()).limit(5).all()
+
     summary_key = build_dashboard_summary_cache_key(org_id)
     cached_summary = cache_get(summary_key)
 
@@ -908,20 +1003,19 @@ def dashboard():
         finalized_runs = cached_summary.get('finalized_runs', 0)
         total_payroll = cached_summary.get('total_payroll', 0)
     else:
-        total_employees = Employee.query.filter_by(status='active', org_id=org_id).count()
+        total_employees = len(employees)
         pending_runs = PayrollRun.query.filter_by(status='pending', org_id=org_id).count()
         finalized_runs = PayrollRun.query.filter_by(status='finalized', org_id=org_id).count()
-        latest_run = PayrollRun.query.filter_by(status='finalized', org_id=org_id).order_by(PayrollRun.created_at.desc()).first()
-        total_payroll = latest_run.total_net if latest_run else 0
+        latest_finalized = next((r for r in recent_runs if r.status == 'finalized'), None)
+        if not latest_finalized and finalized_runs:
+            latest_finalized = PayrollRun.query.filter_by(status='finalized', org_id=org_id).order_by(PayrollRun.created_at.desc()).first()
+        total_payroll = latest_finalized.total_net if latest_finalized else 0
         cache_set(summary_key, {
             'total_employees': total_employees,
             'pending_runs': pending_runs,
             'finalized_runs': finalized_runs,
             'total_payroll': total_payroll
         }, ttl=180)
-
-    employees = Employee.query.filter_by(status='active', org_id=org_id).all()
-    recent_runs = PayrollRun.query.filter_by(org_id=org_id).order_by(PayrollRun.created_at.desc()).limit(5).all()
 
     return render_template('dashboard.html',
                            total_employees=total_employees,
@@ -1012,7 +1106,7 @@ def attendance():
     if request.method == 'POST' and current_user.role != 'employee':
         form_data = {k: v for k, v in request.form.items()}
         try:
-            validated = AttendanceUpdateSchema(**form_data)
+            validated = AttendanceUpdateSchema.model_validate(form_data)
         except ValidationError as ve:
             flash(f"Invalid attendance data: {ve.errors()[0]['msg']}", 'error')
             return redirect(url_for('attendance'))
@@ -1054,9 +1148,9 @@ def attendance():
                 flash(f'Attendance added for {emp.full_name} — {att_month}/{att_year}', 'success')
 
             db.session.commit()
-        except Exception as e:
+        except Exception:
             db.session.rollback()
-            app.logger.exception(f"Attendance save error: {str(e)}")
+            app.logger.exception("Attendance save error")
             flash('Error saving attendance record.', 'error')
 
         return redirect(url_for('attendance', month=att_month, year=att_year))
@@ -1066,12 +1160,14 @@ def attendance():
 
     if current_user.role == 'employee':
         emp = get_employee_for_current_user()
-        logs = AttendanceLog.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id, month=month, year=year).all() if emp else []
+        logs = AttendanceLog.query.options(joinedload(AttendanceLog.employee)).filter_by(
+            emp_id=emp.emp_id, org_id=current_user.org_id, month=month, year=year
+        ).all() if emp else []
         employees = [emp] if emp else []
     else:
         employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
         emp_ids = [e.emp_id for e in employees]
-        logs = AttendanceLog.query.filter(
+        logs = AttendanceLog.query.options(joinedload(AttendanceLog.employee)).filter(
             AttendanceLog.org_id == current_user.org_id,
             AttendanceLog.emp_id.in_(emp_ids),
             AttendanceLog.month == month,
@@ -1089,9 +1185,13 @@ def attendance():
 def tax_deductions():
     if current_user.role == 'employee':
         emp = get_employee_for_current_user()
-        declarations = TaxDeclaration.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id).all() if emp else []
+        declarations = TaxDeclaration.query.options(joinedload(TaxDeclaration.employee)).filter_by(
+            emp_id=emp.emp_id, org_id=current_user.org_id
+        ).all() if emp else []
     else:
-        declarations = TaxDeclaration.query.filter_by(org_id=current_user.org_id).all()
+        declarations = TaxDeclaration.query.options(joinedload(TaxDeclaration.employee)).filter_by(
+            org_id=current_user.org_id
+        ).all()
 
     return render_template('tax_deductions.html', declarations=declarations)
 
@@ -1122,7 +1222,9 @@ def documents():
 @login_required
 @role_required('hr_admin', 'finance')
 def people():
-    query = Employee.query.filter_by(org_id=current_user.org_id).order_by(Employee.emp_id.asc())
+    query = Employee.query.options(selectinload(Employee.salary_structures)).filter_by(
+        org_id=current_user.org_id
+    ).order_by(Employee.emp_id.asc())
     pagination = paginate_query(query, max_per_page=50)
     return render_template('people.html', employees=pagination.items, pagination=pagination)
 
@@ -1134,7 +1236,7 @@ def add_employee():
     """Add employee with schema validation, atomic transaction, and idempotency."""
     form_data = {k: v for k, v in request.form.items()}
     try:
-        validated = EmployeeCreateSchema(**form_data)
+        validated = EmployeeCreateSchema.model_validate(form_data)
     except ValidationError as ve:
         flash(f"Validation error: {ve.errors()[0]['msg']}", 'error')
         return redirect(url_for('people')), 400
@@ -1213,9 +1315,9 @@ def add_employee():
             )
 
         flash(f'Employee {emp.full_name} added successfully! Login: EMP{emp.emp_id} / {emp.first_name.lower()}123', 'success')
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        app.logger.exception(f"Failed to add employee: {str(e)}")
+        app.logger.exception("Failed to add employee")
         flash('An error occurred while adding the employee. Please check inputs and try again.', 'error')
 
     return redirect(url_for('people'))
@@ -1229,7 +1331,7 @@ def run_payroll():
     if request.method == 'POST':
         form_data = {k: v for k, v in request.form.items()}
         try:
-            validated = RunPayrollSchema(**form_data)
+            validated = RunPayrollSchema.model_validate(form_data)
         except ValidationError as ve:
             flash(f"Validation error: {ve.errors()[0]['msg']}", 'error')
             return redirect(url_for('run_payroll')), 400
@@ -1300,9 +1402,9 @@ def run_payroll():
             flash(f'Payroll calculated for {count} employees. Total Net: ₹{run.total_net:,.2f}', 'success')
             return redirect(url_for('run_payroll'))
 
-        except Exception as e:
+        except Exception:
             db.session.rollback()
-            app.logger.exception(f"Error executing payroll run: {str(e)}")
+            app.logger.exception("Error executing payroll run")
             flash('Failed to run payroll due to a database conflict or error.', 'error')
             return redirect(url_for('run_payroll'))
 
@@ -1318,7 +1420,7 @@ def approve_payroll(run_id):
     run = PayrollRun.query.filter_by(run_id=run_id, org_id=current_user.org_id).first_or_404()
     run.status = 'finalized'
     run.approver_id = current_user.id
-    run.finalized_at = datetime.utcnow()
+    run.finalized_at = _utc_now()
     db.session.commit()
 
     # Evict tenant payroll and dashboard caches
@@ -1402,9 +1504,20 @@ def report_dept_cost():
 def report_ytd():
     year = request.args.get('year', type=int, default=2026)
     employees = Employee.query.filter_by(status='active', org_id=current_user.org_id).all()
+    emp_ids = [emp.emp_id for emp in employees]
+    slips_by_emp = {}
+    if emp_ids:
+        all_slips = Payslip.query.filter(
+            Payslip.org_id == current_user.org_id,
+            Payslip.year == year,
+            Payslip.emp_id.in_(emp_ids)
+        ).all()
+        for slip in all_slips:
+            slips_by_emp.setdefault(slip.emp_id, []).append(slip)
+
     ytd_data = []
     for emp in employees:
-        slips = Payslip.query.filter_by(emp_id=emp.emp_id, org_id=current_user.org_id, year=year).all()
+        slips = slips_by_emp.get(emp.emp_id, [])
         if slips:
             ytd_data.append({
                 'employee': emp,
@@ -1616,8 +1729,8 @@ def seed_database():
 
     # Generate a demo payroll run for February 2026
     admin_user = User.query.filter_by(username='admin').first()
-    run = PayrollRun(month=2, year=2026, created_by=admin_user.id, status='finalized',
-                     finalized_at=datetime.utcnow(), org_id=org.org_id)
+    run = PayrollRun(month=2, year=2026, created_by=admin_user.id if admin_user else None, status='finalized',
+                     finalized_at=_utc_now(), org_id=org.org_id)
     db.session.add(run)
     db.session.flush()
 
@@ -1643,14 +1756,14 @@ _db_initialized = False
 def initialize_database():
     """Ensure database schema is created and seeded on startup for local SQLite development."""
     global _db_initialized
-    if not _db_initialized:
+    if not _db_initialized and request.endpoint != 'static':
         uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
         if uri.startswith('sqlite'):
             try:
                 db.create_all()
                 seed_database()
-            except Exception:
-                pass
+            except SQLAlchemyError as exc:
+                app.logger.warning("SQLite initialization skipped: %s", exc)
         _db_initialized = True
 
 

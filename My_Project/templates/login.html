@@ -11,11 +11,23 @@
         } catch {}
     </script>
     <title>Sign In | PayrollX</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_v) }}" fetchpriority="high">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" data-async-style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/fontawesome.min.css" media="print" data-async-style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/solid.min.css" media="print" data-async-style>
+    <script>
+        document.querySelectorAll('link[data-async-style]').forEach(function (l) {
+            if (l.sheet) l.media = 'all';
+            else l.addEventListener('load', function () { l.media = 'all'; }, { once: true });
+        });
+    </script>
+    <noscript>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/fontawesome.min.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/solid.min.css">
+    </noscript>
 </head>
 <body>
     <main class="auth-page">
@@ -205,6 +217,6 @@
     </main>
 
     <div id="toast-region" class="toast-region" role="region" aria-label="Notifications"></div>
-    <script defer src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script defer fetchpriority="high" src="{{ url_for('static', filename='js/main.js', v=asset_v) }}"></script>
 </body>
 </html>

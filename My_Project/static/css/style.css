@@ -74,6 +74,13 @@
     max-inline-size: 100%;
   }
 
+  /* Reserve deterministic width for async-loaded icon fonts to avoid CLS */
+  i:where(.fas, .fa-solid) {
+    display: inline-block;
+    inline-size: 1.125em;
+    text-align: center;
+  }
+
   :where(button, input, select, textarea) {
     font: inherit;
     letter-spacing: inherit;
